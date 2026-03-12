@@ -8,7 +8,7 @@ Inspired heavily by the Finnish rocket game lineage:
 - TurboRaketti, Heikki Kosola, 1991
 - AUTS (1995) by Jaakko Lyytinen (A-More) / The Kudos
 - Tcpippeli (Ville Kujala, 199x)
-- And so on... 
+- Kops, Fuse, and so on... 
 
 But mostly AUTS, because it had Shareware licence and excellent controls.
 So there is a level-reader for AUTS levels included.
@@ -68,3 +68,4 @@ test.fsx      — Smoke tests
 *.LEV         — AUTS terrain maps
 ```
 
+<img width="1185" height="717" alt="image" src="https://github.com/user-attachments/assets/052d8c29-2cda-4dc2-a88b-ebf61fe9d4d9" />
