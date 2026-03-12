@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Physics.fs" />
+    <Compile Include="Terrain.fs" />
+    <Compile Include="Weapons.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Entities.fs" />
+    <Compile Include="Game.fs" />
+    <Compile Include="Renderer.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <!-- Copy all .LEV level files to the output directory -->
+  <ItemGroup>
+    <None Include="*.LEV" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
