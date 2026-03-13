@@ -27,7 +27,7 @@ type Player =
       VelY: float
       Flags: PlayerFlags
       Health: int
-      WeaponType: int           // 0-based index into weapons[]
+      WeaponType: WeaponType      // Weapon enum index into weapons[]
       ReloadTimer: int          // Countdown to next shot
       KeyUp: bool               // Key states set by input
       KeyLeft: bool
@@ -46,7 +46,8 @@ type Player =
       InvTimer: int             // Invincibility timer on spawn (protects from bullets)
       WallDmgCooldown: int      // Cooldown after wall damage (does NOT protect from bullets)
       KillCount: int            // Kills (for scoreboard)
-      DeathCount: int }         // Deaths (for scoreboard)
+      DeathCount: int           // Deaths (for scoreboard)
+      IsCpu: bool }             // Is this a CPU-controlled player
 
 // ─── Entity Record ────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ type Entity =
       EType: EntityType         // Entity type
       Owner: int                // Owner player index
       Radius: float             // Expanding entities: current blast/effect radius
-      WeaponIdx: int }          // Which weapon spawned this
+      WeaponIdx: WeaponType }   // Which weapon spawned this
 
 // ─── Particle (for death debris / explosions) ─────────────────────────
 [<Struct>]
@@ -85,6 +86,7 @@ type GameState =
       Particles: Particle list
       Rng: Random
       NumPlayers: int
+      CpuCount: int               // Number of CPU-controlled players (last N players)
       GameTick: int
       RoundActive: bool
       Level: Terrain.LevelData option

@@ -17,7 +17,7 @@ let createPlayer (index: int) : Player =
     { PosX = 0.0; PosY = 0.0; Angle = SpawnDirection
       VelX = 0.0; VelY = 0.0
       Flags = PlayerFlags.Active; Health = FullHealth
-      WeaponType = 14  // Start with MACHINEGUN
+      WeaponType = WeaponType.Machinegun  // Start with MACHINEGUN
       ReloadTimer = 0; KeyUp = false; KeyLeft = false
       KeyRight = false; KeyFire = false; KeyDown = false
       Ammo = 999
@@ -25,13 +25,13 @@ let createPlayer (index: int) : Player =
       CloakAngle = 0.0; StunTimer = 0; Alive = true
       AnimAngle = 0.0; BlackholeCounter = 1
       InvTimer = SpawnInvincibilityTicks; WallDmgCooldown = 0
-      KillCount = 0; DeathCount = 0 }
+      KillCount = 0; DeathCount = 0; IsCpu = false }
 
 let defaultEntity : Entity =
     { X = 0.0; Y = 0.0; Timer = 0; SubType = 0
       VelX = 0.0; VelY = 0.0
       EType = EntityType.None; Owner = 0
-      Radius = 0.0; WeaponIdx = 0 }
+      Radius = 0.0; WeaponIdx = WeaponType.NoWeapon }
 
 let defaultParticle : Particle =
     { X = 0.0; Y = 0.0; VelX = 0.0; VelY = 0.0
@@ -43,6 +43,7 @@ let createGameState (numPlayers: int) : GameState =
       Particles = []
       Rng = Random ()
       NumPlayers = min numPlayers 4
+      CpuCount = 0
       GameTick = 0
       RoundActive = false
       Level = None
@@ -74,7 +75,7 @@ let spawnPlayer (rng: Random) (level: LevelData option) (p: Player) : Player =
 
 // ─── Spawn a bullet/projectile — returns new entity to add ─────────────
 
-let makeProjectile (p: Player) (owner: int) (weaponIdx: int) : Entity =
+let makeProjectile (p: Player) (owner: int) (weaponIdx: WeaponType) : Entity =
     let w = getWeapon weaponIdx
     let rad = degToRad (p.Angle + 90.0)
     { defaultEntity with
@@ -86,7 +87,7 @@ let makeProjectile (p: Player) (owner: int) (weaponIdx: int) : Entity =
         Owner = owner
         WeaponIdx = weaponIdx }
 
-let makeProjectileAngled (p: Player) (owner: int) (weaponIdx: int) (angleOffset: float) : Entity =
+let makeProjectileAngled (p: Player) (owner: int) (weaponIdx: WeaponType) (angleOffset: float) : Entity =
     let w = getWeapon weaponIdx
     let rad = degToRad (p.Angle + 90.0 + angleOffset)
     { defaultEntity with

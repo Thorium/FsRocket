@@ -38,7 +38,7 @@ let playerDarkColors = [|
     Color.FromArgb(0x9F, 0x9F, 0x1F)
 |]
 
-let bgColor = Color.FromArgb(0x10, 0x10, 0x18)
+let bgColor = Color.FromArgb(0x00, 0x00, 0x00)
 let wallColor = Color.FromArgb(0x40, 0x40, 0x50)
 let gridColor = Color.FromArgb(0x18, 0x18, 0x24)
 let bulletColor = Color.FromArgb(0xFF, 0xFF, 0x80)
@@ -332,7 +332,9 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
             | EntityType.Heavy ->
                 // Missile/dumbfire: directional shape with exhaust glow
                 let sz = 4 * Scale
-                let c = if ent.WeaponIdx = 19 then Color.FromArgb(0xFF, 0xC0, 0x30) else Color.Orange
+                let c = if ent.WeaponIdx = WeaponType.Missile then Color.FromArgb(0xFF, 0xC0, 0x30)
+                        elif ent.WeaponIdx = WeaponType.AtomWeapon then Color.FromArgb(0x40, 0xFF, 0x40)  // Green glow for atom
+                        else Color.Orange
                 use heavyBrush = new SolidBrush(c)
                 // Draw a directional diamond shape
                 let speed = sqrt (ent.VelX * ent.VelX + ent.VelY * ent.VelY) + 0.01
@@ -501,15 +503,26 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
 
     // Background
     g.FillRectangle(cachedMmBg, mmX, mmY, mmW, mmH)
-    g.DrawRectangle(cachedMmBorder, mmX, mmY, mmW, mmH)
 
-    // Walls on minimap
-    for w in arenaWalls do
-        let mwx = mmX + int (w.X * mmScaleX)
-        let mwy = mmY + int (w.Y * mmScaleY)
-        let mww = max 1 (int (w.W * mmScaleX))
-        let mwh = max 1 (int (w.H * mmScaleY))
-        g.FillRectangle(cachedMmWallBrush, mwx, mwy, mww, mwh)
+    // Terrain preview on minimap
+    match gs.Level with
+    | Some level ->
+        let tbmp = getTerrainBitmap level gs.TerrainDirty
+        let prevInterp = g.InterpolationMode
+        g.InterpolationMode <- InterpolationMode.NearestNeighbor
+        g.DrawImage(tbmp, Rectangle(mmX, mmY, mmW, mmH),
+                    Rectangle(0, 0, MapWidth, MapHeight), GraphicsUnit.Pixel)
+        g.InterpolationMode <- prevInterp
+    | None ->
+        // Walls on minimap (no-terrain mode only)
+        for w in arenaWalls do
+            let mwx = mmX + int (w.X * mmScaleX)
+            let mwy = mmY + int (w.Y * mmScaleY)
+            let mww = max 1 (int (w.W * mmScaleX))
+            let mwh = max 1 (int (w.H * mmScaleY))
+            g.FillRectangle(cachedMmWallBrush, mwx, mwy, mww, mwh)
+
+    g.DrawRectangle(cachedMmBorder, mmX, mmY, mmW, mmH)
 
     // Entities on minimap (just dots for active ones)
     for ent in gs.Entities do
@@ -552,7 +565,7 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
     let weaponName = (getWeapon p.WeaponType).Name
 
     // Player name and weapon
-    let name = $"P{playerIdx + 1}"
+    let name = if p.IsCpu then $"CPU{playerIdx + 1}" else $"P{playerIdx + 1}"
     g.DrawString(name, cachedHudFont, cachedPlayerBrushes[playerIdx % 4], float32 (vx + 4), float32 hudY)
 
     // Health bar
@@ -618,18 +631,19 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         use subFont = new Font("Consolas", 10.0f)
         use keyFont = new Font("Consolas", 9.0f)
         use white = new SolidBrush(Color.White)
-        use gray = new SolidBrush(Color.Gray)
+        use gray = new SolidBrush(Color.FromArgb(0xC0, 0xC0, 0xC0))
         use yellow = new SolidBrush(Color.FromArgb(0xFF, 0xFF, 0x80))
         let cx = float32 (windowW / 2 - 200)
         let mutable y = float32 (windowH / 2 - 80)
         g.DrawString("FsRocket Physics", titleFont, white, cx, y)
         y <- y + 30.0f
         let levelName = match gs.Level with Some lv -> lv.Name | None -> "No Terrain"
-        g.DrawString($"Level: {levelName}  |  Constants", subFont, gray, cx, y)
+        let cpuText = if gs.CpuCount > 0 then $"  |  CPU: {gs.CpuCount}" else ""
+        g.DrawString($"Level: {levelName}  |  Players: {gs.NumPlayers}{cpuText}", subFont, gray, cx, y)
         y <- y + 24.0f
         g.DrawString("Press SPACE to start  |  F1-F4: weapon  |  1-4: players  |  ESC: quit", subFont, gray, cx, y)
         y <- y + 16.0f
-        g.DrawString("F5: prev level  |  F6: next level", subFont, gray, cx, y)
+        g.DrawString("F5: prev level  |  F6: next level  |  F7/F8: CPU players", subFont, gray, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
         y <- y + 18.0f

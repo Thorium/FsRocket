@@ -17,9 +17,9 @@ open System
 
 let ThrustAccel = 0.1
 let GravityAccel = 0.02
-let FrictionDecel = -0.09
+let FrictionDecel = -0.06
 let MaxVelocity = 2.0
-let FrictionMaxVel = 0.6
+let FrictionMaxVel = 1.0
 let TurnSpeed = 8.0
 let MaxAngle = 360.0
 let PositionScale = 32.0
@@ -100,24 +100,27 @@ printfn "-- Test 4: Friction -- water terrain only (0x27), constant subtraction 
 // Per ASM at B13B: CMP [BP-02h], 0x27 / JE apply_friction / JMP skip.
 // Without terrain loaded, friction never runs. These tests verify the math
 // for when terrain IS loaded.
+// FrictionDecel = -0.06, FrictionMaxVel = 1.0
 vx <- 0.5
 for _ in 1 .. 5 do
     vx <- vx + FrictionDecel
     if vx < 0.0 then vx <- 0.0
-check "water friction: VelX=0.5 after 5 ticks: 0.05" (approx vx 0.05)
-vx <- vx + FrictionDecel
-if vx < 0.0 then vx <- 0.0
-check "water friction: VelX should be 0 (clamped)" (approx vx 0.0)
+check "water friction: VelX=0.5 after 5 ticks: 0.2" (approx vx 0.2)
+// After 3 more ticks: 0.2 - 0.18 = 0.02
+for _ in 1 .. 3 do
+    vx <- vx + FrictionDecel
+    if vx < 0.0 then vx <- 0.0
+check "water friction: VelX after 8 ticks: 0.02" (approx vx 0.02)
 
 vx <- -0.3
 for _ in 1 .. 3 do
     vx <- vx - FrictionDecel
     if vx > 0.0 then vx <- 0.0
-check "water friction: VelX=-0.3 after 3 ticks: -0.03" (approx vx (-0.03))
+check "water friction: VelX=-0.3 after 3 ticks: -0.12" (approx vx (-0.12))
 
-vx <- 0.8
+vx <- 1.5
 vx <- clampF -FrictionMaxVel FrictionMaxVel vx
-check "water friction: FrictionMaxVel clamp: 0.6" (approx vx 0.6)
+check "water friction: FrictionMaxVel clamp: 1.0" (approx vx 1.0)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "-- Test 5: Turning -- 8 degrees per tick --"

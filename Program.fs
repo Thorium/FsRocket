@@ -60,11 +60,11 @@ let tryLoadLevel (gs: GameState) (name: string) : GameState option =
 let cycleWeapon (gs: GameState) (playerIdx: int) : GameState =
     if playerIdx < gs.NumPlayers then
         let p = gs.Players[playerIdx]
-        let mutable wt = (p.WeaponType + 1) % weapons.Length
+        let mutable wt = (int p.WeaponType + 1) % weapons.Length
         // Skip weapons that are not yet implemented or are placeholders
         while not weapons[wt].Enabled do
             wt <- (wt + 1) % weapons.Length
-        let p = { p with WeaponType = wt; Ammo = 999; ReloadTimer = 0 }
+        let p = { p with WeaponType = enum<WeaponType> wt; Ammo = 999; ReloadTimer = 0 }
         let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
         { gs with Players = players }
     else
@@ -122,20 +122,32 @@ type GameForm() as this =
 
         // Special keys
         match e.KeyCode with
-        | Keys.Escape -> Application.Exit()
+        | Keys.Escape ->
+            if gs.RoundActive then
+                gs <- { gs with RoundActive = false }
+            else
+                Application.Exit()
         | Keys.Space ->
             if not gs.RoundActive then
                 gs <- initRound gs
-        | Keys.D1 -> gs <- { gs with NumPlayers = 1; RoundActive = false }
-        | Keys.D2 -> gs <- { gs with NumPlayers = 2; RoundActive = false }
-        | Keys.D3 -> gs <- { gs with NumPlayers = 3; RoundActive = false }
-        | Keys.D4 -> gs <- { gs with NumPlayers = 4; RoundActive = false }
+        | Keys.D1 -> gs <- { gs with NumPlayers = 1; CpuCount = min gs.CpuCount 1; RoundActive = false }
+        | Keys.D2 -> gs <- { gs with NumPlayers = 2; CpuCount = min gs.CpuCount 2; RoundActive = false }
+        | Keys.D3 -> gs <- { gs with NumPlayers = 3; CpuCount = min gs.CpuCount 3; RoundActive = false }
+        | Keys.D4 -> gs <- { gs with NumPlayers = 4; CpuCount = min gs.CpuCount 4; RoundActive = false }
         | Keys.F1 -> gs <- cycleWeapon gs 0
         | Keys.F2 -> gs <- cycleWeapon gs 1
         | Keys.F3 -> gs <- cycleWeapon gs 2
         | Keys.F4 -> gs <- cycleWeapon gs 3
         | Keys.F5 -> switchLevel -1
         | Keys.F6 -> switchLevel 1
+        | Keys.F7 ->
+            // Decrease CPU count (min 0)
+            let c = max 0 (gs.CpuCount - 1)
+            gs <- { gs with CpuCount = c }
+        | Keys.F8 ->
+            // Increase CPU count (max = NumPlayers)
+            let c = min gs.NumPlayers (gs.CpuCount + 1)
+            gs <- { gs with CpuCount = c }
         | _ -> ()
 
         base.OnKeyDown(e)
@@ -154,16 +166,13 @@ type GameForm() as this =
 
         this.Invalidate()
 
-        // Clear terrain dirty flag after the frame is rendered,
-        // so the bitmap is rebuilt exactly once per modification.
-        if gs.TerrainDirty then
-            gs <- { gs with TerrainDirty = false }
-
     member _.MapInputs() =
         let has k = keyStates.Contains(k)
 
         let players =
             gs.Players |> List.mapi (fun i p ->
+                if p.IsCpu then p  // CPU players get input from AI, not keyboard
+                else
                 match i with
                 | 0 when gs.NumPlayers >= 1 ->
                     // Player 1 (RED): Arrow keys / NumPad + RShift
@@ -195,6 +204,11 @@ type GameForm() as this =
 
     override this.OnPaint(e: PaintEventArgs) =
         renderFrame e.Graphics gs this.ClientSize.Width this.ClientSize.Height
+        // Clear terrain dirty flag AFTER the frame is actually rendered.
+        // (Invalidate() only queues WM_PAINT; clearing before OnPaint runs
+        //  would cause the renderer to never see the dirty flag.)
+        if gs.TerrainDirty then
+            gs <- { gs with TerrainDirty = false }
 
     override _.OnFormClosed(e: FormClosedEventArgs) =
         timer.Stop()

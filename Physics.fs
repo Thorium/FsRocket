@@ -21,7 +21,7 @@ let GravityAccel = 0.02
 /// Friction deceleration per frame on water terrain - constant subtraction, NOT multiplicative
 /// (CS:A6A8h, Real80 = -0.09)  Applied to VelY (and mirrored for VelX)
 [<Literal>]
-let FrictionDecel = -0.09
+let FrictionDecel = -0.06
 
 /// Maximum velocity magnitude when thrusting (CS:A67Eh/A682h, Float32 = ±2.0)
 [<Literal>]
@@ -29,7 +29,7 @@ let MaxVelocity = 2.0
 
 /// Maximum velocity magnitude during friction/decel mode (CS:A6B2h/A6BCh, Real80 = ±0.6)
 [<Literal>]
-let FrictionMaxVel = 0.6
+let FrictionMaxVel = 1.0
 
 /// Turning speed: 8 degrees per tick (from ADD AX, 8 / SUB AX, 8 at 0000:ABC0/ABE8)
 [<Literal>]
@@ -71,9 +71,13 @@ let PositionScale = 32.0
 
 // ─── Arena / Viewport ──────────────────────────────────────────────────
 
-/// Arena pixel dimensions (spawn range: Random(320) x Random(400))
-let ArenaWidth = 320.0
-let ArenaHeight = 400.0
+/// Arena pixel dimensions — single source of truth for map size
+let MapWidth = 320
+let MapHeight = 400
+
+/// Arena pixel dimensions as float (for physics calculations)
+let ArenaWidth = float MapWidth
+let ArenaHeight = float MapHeight
 
 /// Per-player viewport size (156x86 pixels)
 let ViewportWidth = 156

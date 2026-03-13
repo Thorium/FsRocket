@@ -23,81 +23,90 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
     let p = { p with ReloadTimer = w.ReloadTicks; Ammo = p.Ammo - 1; ShotCount = p.ShotCount + 1 }
 
     match p.WeaponType with
-    | 3 ->  // REAR TURRET — fires behind
+    | WeaponType.Magnofilter ->
+        // MAGNOFILTER — fire key toggles the field (same as DOWN)
+        let flags =
+            if p.Flags.HasFlag(PlayerFlags.Magno) then p.Flags &&& ~~~PlayerFlags.Magno
+            else p.Flags ||| PlayerFlags.Magno
+        { p with Flags = flags; ReloadTimer = 10 }, []
+
+    | WeaponType.RearTurret ->  // REAR TURRET — fires behind
         p, [ makeProjectileAngled p ownerIdx p.WeaponType 180.0 ]
 
-    | 4 ->  // MULTICANNON — 3-way spread
-        let ents = [ for offset in [ -2.2; 0.0; 2.2 ] -> makeProjectileAngled p ownerIdx p.WeaponType offset ]
-        p, ents
-
-    | 5 ->  // RUBBER BLTS — 24 bullets in full circle at 15° intervals
+    | WeaponType.Multicannon ->  // MULTICANNON — 24 bullets in full 360° circle at 15° intervals
         let ents = [ for i in 0..23 ->
-                        let angle = float i * 15.0 - 15.0 
+                        let angle = float i * 15.0
                         makeProjectileAngled p ownerIdx p.WeaponType angle ]
         p, ents
 
-    | 6 ->  // MINE — stationary at player position, arms after 25 ticks
+    | WeaponType.RubberBullets ->  // RUBBER BLTS — 3 bouncing bullets in a spread
+        let ents = [ for offset in [ -8.0; 0.0; 8.0 ] ->
+                        let e = makeProjectileAngled p ownerIdx p.WeaponType offset
+                        { e with EType = EntityType.Ricochet; SubType = 0 } ]
+        p, ents
+
+    | WeaponType.Mine ->  // MINE — stationary at player position, arms after 25 ticks
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         EType = EntityType.Mine; Owner = ownerIdx
-                        Timer = -25; WeaponIdx = 6 }
+                        Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | 8 ->  // DIRTCLOD — lobbed with gravity
+    | WeaponType.Dirtclod ->  // DIRTCLOD — lobbed with gravity
         let rad = degToRad (p.Angle + 90.0)
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Exploding; Owner = ownerIdx; WeaponIdx = 8 }
+                        EType = EntityType.Exploding; Owner = ownerIdx; WeaponIdx = WeaponType.Dirtclod }
         p, [ ent ]
 
-    | 11 -> // ATOM WEAPON — nuke
+    | WeaponType.AtomWeapon -> // ATOM WEAPON — travels as heavy projectile, detonates on impact
         let rad = degToRad (p.Angle + 90.0)
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Nuke; Owner = ownerIdx; WeaponIdx = 11 }
+                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.AtomWeapon }
         p, [ ent ]
 
-    // | 12 -> // TROOPERS — TODO: deploy ground units that shoot nearby opponents
+    // | WeaponType.Troopers -> // TROOPERS — TODO: deploy ground units that shoot nearby opponents
     //     let ents = [ for off in [ 0.0; 90.0; 180.0; 270.0 ] -> makeProjectileAngled p ownerIdx p.WeaponType off ]
     //     p, ents
 
-    | 13 -> // HELL FIRE — flame with random spread
+    | WeaponType.HellFire -> // HELL FIRE — flame with random spread
         let spread = float (rng.Next 7 - 3)
         let rad = degToRad (p.Angle + 90.0 + spread)
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Flame; Owner = ownerIdx; WeaponIdx = 13 }
+                        EType = EntityType.Flame; Owner = ownerIdx; WeaponIdx = WeaponType.HellFire }
         p, [ ent ]
 
-    | 15 -> // SONICBOOM — expanding ring from player position
+    | WeaponType.Sonicboom -> // SONICBOOM — expanding ring from player position
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         EType = EntityType.Expanding; Owner = ownerIdx
-                        Radius = 4.0; WeaponIdx = 15 }
+                        Radius = 4.0; WeaponIdx = WeaponType.Sonicboom }
         p, [ ent ]
 
-    | 17 -> // TOXIC DUMP — persisting flame pool
+    | WeaponType.ToxicDump -> // TOXIC DUMP — persisting flame pool
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         EType = EntityType.Flame; Owner = ownerIdx
-                        Timer = -200; Radius = 8.0; WeaponIdx = 17 }
+                        Timer = -200; Radius = 8.0; WeaponIdx = WeaponType.ToxicDump }
         p, [ ent ]
 
-    | 19 -> // MISSILE — homing
+    | WeaponType.Missile -> // MISSILE — homing
         let rad = degToRad (p.Angle + 90.0)
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = 19 }
+                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.Missile }
         p, [ ent ]
 
-    | 20 -> // BLACKHOLE — gravity well
+    | WeaponType.Blackhole -> // BLACKHOLE — gravity well
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        EType = EntityType.Blackhole; Owner = ownerIdx; WeaponIdx = 20 }
+                        EType = EntityType.Blackhole; Owner = ownerIdx; WeaponIdx = WeaponType.Blackhole }
         p, [ ent ]
 
     | _ ->  // Standard forward fire
@@ -109,46 +118,48 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
     let w = getWeapon p.WeaponType
 
     match p.WeaponType with
-    | 2 ->
+    | WeaponType.Magnofilter ->
         // MAGNOFILTER — toggle flag
         let flags =
             if p.Flags.HasFlag(PlayerFlags.Magno) then p.Flags &&& ~~~PlayerFlags.Magno
             else p.Flags ||| PlayerFlags.Magno
         { p with Flags = flags; KeyDown = false }, []
 
-    | 3 ->
+    | WeaponType.RearTurret ->
         // REAR TURRET special: set cooldown
         { p with ReloadTimer = w.ReloadTicks }, []
 
-    | 4 ->
-        // MULTICANNON special: fires behind
-        { p with ReloadTimer = w.ReloadTicks }, [ makeProjectileAngled p ownerIdx p.WeaponType 180.0 ]
+    | WeaponType.Multicannon ->
+        // MULTICANNON special: tight forward burst of 5
+        let ents = [ for offset in [ -4.0; -2.0; 0.0; 2.0; 4.0 ] ->
+                        makeProjectileAngled p ownerIdx p.WeaponType offset ]
+        { p with ReloadTimer = w.ReloadTicks }, ents
 
-    | 7 ->
+    | WeaponType.Nucleus ->
         // NUCLEUS special: shield at player pos
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        EType = EntityType.Shield; Owner = ownerIdx; WeaponIdx = 7 }
+                        EType = EntityType.Shield; Owner = ownerIdx; WeaponIdx = WeaponType.Nucleus }
         { p with ReloadTimer = w.ReloadTicks }, [ ent ]
 
-    | 13 ->
+    | WeaponType.HellFire ->
         // HELL FIRE special: wider spread
         let ents = [ for _ in 1..3 ->
                         let spread = float (rng.Next 21 - 10)
                         makeProjectileAngled p ownerIdx p.WeaponType spread ]
         { p with ReloadTimer = w.ReloadTicks }, ents
 
-    | 14 ->
+    | WeaponType.Machinegun ->
         // MACHINEGUN special: random offset
         let randOffset = float (rng.Next 21 - 10)
         { p with ReloadTimer = w.ReloadTicks }, [ makeProjectileAngled p ownerIdx p.WeaponType randOffset ]
 
-    | 16 ->
+    | WeaponType.Fan ->
         // FAN special: fan arc
         let ents = [ for i in -4..4 -> makeProjectileAngled p ownerIdx p.WeaponType (float i * 8.0) ]
         { p with ReloadTimer = w.ReloadTicks }, ents
 
-    | 19 ->
+    | WeaponType.Missile ->
         // MISSILE special: fire with recoil
         let ent = makeProjectile p ownerIdx p.WeaponType
         let rad = degToRad (p.Angle + 90.0)
@@ -157,14 +168,28 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
             VelY = p.VelY + sin rad * 0.5
             ReloadTimer = w.ReloadTicks }, [ ent ]
 
-    | 20 ->
+    | WeaponType.Blackhole ->
         // BLACKHOLE special: stationary gravity well + counter
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        EType = EntityType.Blackhole; Owner = ownerIdx; WeaponIdx = 20 }
+                        EType = EntityType.Blackhole; Owner = ownerIdx; WeaponIdx = WeaponType.Blackhole }
         { p with
             BlackholeCounter = min 5 (p.BlackholeCounter + 1)
             ReloadTimer = w.ReloadTicks }, [ ent ]
+
+    | WeaponType.AtomWeapon ->
+        // ATOM WEAPON special: same as regular fire — travels as heavy projectile, detonates on impact
+        let rad = degToRad (p.Angle + 90.0)
+        let ent = { defaultEntity with
+                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
+                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.AtomWeapon }
+        { p with ReloadTimer = w.ReloadTicks }, [ ent ]
+
+    | WeaponType.RubberBullets ->
+        // RUBBER BLTS special: single bouncing bullet forward
+        let e = makeProjectile p ownerIdx p.WeaponType
+        { p with ReloadTimer = w.ReloadTicks }, [ { e with EType = EntityType.Ricochet; SubType = 0 } ]
 
     | _ ->
         // Default: standard forward fire
@@ -189,15 +214,15 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
         let hitsTerrain =
             match gs.Level with
             | Some level -> Terrain.isWall (Terrain.terrainAt level.Pixels pixX pixY)
-            | None -> hitsWall gs.Level pixX pixY 4.0
+            | None -> hitsWall gs.Level pixX pixY 3.0
         let hitsBoundary = px < 0.0 || px > maxX || py < 0.0 || py > maxY
         if hitsTerrain || hitsBoundary then
             // Terrain contact: clear shield, doubled collision damage (4.8x)
             let speed = abs p.VelX + abs velY
-            let speedDamage = max 1 (int (speed * ShieldKnockbackScale))
+            let speedDamage = int (speed * ShieldKnockbackScale)
             let flags = p.Flags &&& ~~~PlayerFlags.Shield
-            let h = if p.InvTimer = 0 then p.Health - speedDamage else p.Health
-            let inv = if p.InvTimer = 0 then SpawnInvincibilityTicks else p.InvTimer
+            let h = if speedDamage > 0 && p.InvTimer = 0 then p.Health - speedDamage else p.Health
+            let inv = if speedDamage > 0 && p.InvTimer = 0 then SpawnInvincibilityTicks else p.InvTimer
             ({ p with PosX = p.PosX; PosY = p.PosY; VelX = 0.0; VelY = 0.0
                       Flags = flags; Health = h; InvTimer = inv
                       WallHitCount = p.WallHitCount + 1 }, [], [], false)
@@ -280,9 +305,9 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
             let pixel = Terrain.terrainAt level.Pixels px py
             if Terrain.isWall pixel then
                 let speed = abs velX + abs velY
-                let speedDamage = max 1 (int (speed * NormalKnockbackScale))
+                let speedDamage = int (speed * NormalKnockbackScale)
                 let h, whc, wdc =
-                    if wallDmgCooldown = 0 then
+                    if speedDamage > 0 && wallDmgCooldown = 0 then
                         (p.Health - speedDamage, p.WallHitCount + 1, SpawnInvincibilityTicks)
                     else (p.Health, p.WallHitCount, wallDmgCooldown)
                 // Undo move, keep facing direction
@@ -303,7 +328,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
             else
                 (posX, posY, velX, velY, angle, p.Health, p.WallHitCount, wallDmgCooldown, false)
         | None ->
-            if hitsWall gs.Level px py 4.0 then
+            if hitsWall gs.Level px py 3.0 then
                 (p.PosX, p.PosY, velX * -0.3, velY * -0.3, angle, p.Health, p.WallHitCount, wallDmgCooldown, false)
             else
                 (posX, posY, velX, velY, angle, p.Health, p.WallHitCount, wallDmgCooldown, false)
@@ -322,9 +347,9 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     let posX, posY, velX, velY, angle, health, wallHitCount, wallDmgCooldown =
         if hitBoundary then
             let boundarySpeed = abs velX + abs velY
-            let speedDamage = max 1 (int (boundarySpeed * NormalKnockbackScale))
+            let speedDamage = int (boundarySpeed * NormalKnockbackScale)
             let h, whc, wdc =
-                if wallDmgCooldown = 0 then
+                if speedDamage > 0 && wallDmgCooldown = 0 then
                     (health - speedDamage, wallHitCount + 1, SpawnInvincibilityTicks)
                 else (health, wallHitCount, wallDmgCooldown)
             // Keep facing direction on boundary hit
@@ -354,8 +379,8 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     let p, newEnts2 =
         if p.KeyDown && canControl then
             match p.WeaponType with
-            | 12 -> p, []  // TROOPERS — DOWN ignored
-            | 2 | 13 | 14 ->
+            | WeaponType.Troopers -> p, []  // TROOPERS — DOWN ignored
+            | WeaponType.Magnofilter | WeaponType.HellFire | WeaponType.Machinegun ->
                 fireSpecial gs.Rng gs.Level p idx
             | _ ->
                 if p.ReloadTimer = 0 then fireSpecial gs.Rng gs.Level p idx
@@ -387,27 +412,39 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
 
     match ent.EType with
     | EntityType.Ricochet ->
-        // angle advances +16°/tick, VelX/VelY recomputed relative to owner — orbits/spirals
-        let angle = float ent.Timer * 16.0  // Timer increments by 1/tick, angle = timer * 16°
-        let rad = degToRad angle
-        // Spiral outward: radius grows with time
-        let radius = float ent.Timer * 0.5
-        // Get owner position
-        let ox, oy =
-            if ent.Owner >= 0 && ent.Owner < gs.NumPlayers && gs.Players[ent.Owner].Alive then
-                gs.Players[ent.Owner].PosX / PositionScale, gs.Players[ent.Owner].PosY / PositionScale
-            else ent.X, ent.Y  // owner dead — freeze in place
-        let x = ox + cos rad * radius
-        let y = oy + sin rad * radius
-        let alive = ent.Timer <= 200 && not (outOfBounds 10.0 x y)
-        if alive then
-            (Some { ent with X = x; Y = y; VelX = cos rad * 2.0; VelY = sin rad * 2.0 }, [], [], false)
-        else (None, [], [], false)
+        // Rubber bullet: travels in straight line, bounces off walls/terrain
+        let vy = ent.VelY + 0.04  // Light gravity
+        let x = ent.X + ent.VelX
+        let y = ent.Y + vy
+        if outOfBounds 10.0 x y || ent.Timer > 200 then
+            (None, [], [], false)
+        elif hitsWall gs.Level x y 1.0 then
+            // Bounce: try to reflect off wall
+            let bounceCount = ent.SubType + 1
+            if bounceCount > ricochetMaxBounces then
+                (None, [], [], false)
+            else
+                let bx, by, bvx, bvy, bounced = bounceOffWalls gs.Level ent.X ent.Y ent.VelX vy 1.0
+                if bounced then
+                    let bvx = bvx * 0.8  // Lose some speed on bounce
+                    let bvy = bvy * 0.8
+                    (Some { ent with X = bx; Y = by; VelX = bvx; VelY = bvy; SubType = bounceCount }, [], [], false)
+                else
+                    // Fallback: simple velocity reversal
+                    let hitHoriz = hitsWall gs.Level (ent.X + ent.VelX) ent.Y 1.0
+                    let hitVert = hitsWall gs.Level ent.X (ent.Y + vy) 1.0
+                    let nvx = if hitHoriz then -ent.VelX * 0.8 else ent.VelX
+                    let nvy = if hitVert then -vy * 0.8 else vy
+                    (Some { ent with X = ent.X + nvx; Y = ent.Y + nvy; VelX = nvx; VelY = nvy; SubType = bounceCount }, [], [], false)
+        else
+            (Some { ent with X = x; Y = y; VelY = vy }, [], [], false)
 
     | EntityType.Flame ->
         let x = ent.X + ent.VelX
         let y = ent.Y + ent.VelY
-        let vy = min (ent.VelY + 0.08) 4.0
+        // Toxic dump (stationary) has no gravity; fired flames have light gravity
+        let isStationary = ent.WeaponIdx = WeaponType.ToxicDump
+        let vy = if isStationary then ent.VelY else min (ent.VelY + 0.02) 2.0
         let vx = ent.VelX * 0.98
         // Erase terrain on wall contact
         if hitsWall gs.Level x y 1.0 then
@@ -443,7 +480,7 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
             (Some { ent with X = x; Y = y; VelY = vy }, [], [], dirty)
 
     | EntityType.Nuke ->
-        let vy = ent.VelY + 0.125  // Gravity
+        let vy = ent.VelY + 0.02  // Very light gravity — nuke is expanding, shouldn't fall fast
         let x = ent.X + ent.VelX
         let y = ent.Y + vy
         let vx = ent.VelX * 0.96
@@ -497,14 +534,19 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
             (Some { ent with Radius = radius }, [], particles, dirty)
 
     | EntityType.Heavy ->
-        let mutable x = ent.X + ent.VelX
-        let mutable y = ent.Y + ent.VelY
         let mutable vx = ent.VelX
         let mutable vy = ent.VelY
 
+        // Non-missile Heavy projectiles get light gravity (e.g., Atom Weapon, Dumbfire)
+        if ent.WeaponIdx <> WeaponType.Missile then
+            vy <- vy + 0.06
+
+        let mutable x = ent.X + vx
+        let mutable y = ent.Y + vy
+
         // Missile homing (weapon 19)
         let particles =
-            if ent.WeaponIdx = 19 && ent.Timer > 5 then
+            if ent.WeaponIdx = WeaponType.Missile && ent.Timer > 5 then
                 // Find nearest enemy
                 let mutable bestDist = Double.MaxValue
                 let mutable bestIdx = -1
@@ -540,15 +582,39 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
                           VelY = float (gs.Rng.Next 3 - 1) * 0.2
                           Life = 8; Color = ent.Owner % 4 } ]
                 else []
+            elif ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer % 3 = 0 then
+                // Atom weapon: faint trail while in flight
+                [ { defaultParticle with
+                      X = x; Y = y
+                      VelX = float (gs.Rng.Next 3 - 1) * 0.15
+                      VelY = float (gs.Rng.Next 3 - 1) * 0.15
+                      Life = 6; Color = ent.Owner % 4 } ]
             else []
 
-        // Wall collision — explode
+        // Wall collision — explode (or detonate as nuke for AtomWeapon)
         if hitsWall gs.Level x y 3.0 then
-            eraseTerrain gs.Level x y 6.0
-            let parts = spawnExplosion gs.Rng x y 6 1.5 12 (ent.Owner % 4)
-            (None, [], parts @ particles, dirty)
+            if ent.WeaponIdx = WeaponType.AtomWeapon then
+                // Atom weapon: spawn a Nuke entity at impact point
+                let nuke = { defaultEntity with
+                                X = x; Y = y; VelX = ent.VelX * 0.3; VelY = ent.VelY * 0.3
+                                EType = EntityType.Nuke; Owner = ent.Owner
+                                WeaponIdx = WeaponType.AtomWeapon; Radius = 0.0 }
+                let parts = spawnExplosion gs.Rng x y 4 1.0 8 (ent.Owner % 4)
+                (None, [ nuke ], parts @ particles, dirty)
+            else
+                eraseTerrain gs.Level x y 6.0
+                let parts = spawnExplosion gs.Rng x y 6 1.5 12 (ent.Owner % 4)
+                (None, [], parts @ particles, dirty)
         elif outOfBounds 20.0 x y || ent.Timer > 300 then
-            (None, [], particles, dirty)
+            if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer > 300 then
+                // Atom weapon timeout: detonate wherever it is
+                let nuke = { defaultEntity with
+                                X = ent.X; Y = ent.Y; VelX = 0.0; VelY = 0.0
+                                EType = EntityType.Nuke; Owner = ent.Owner
+                                WeaponIdx = WeaponType.AtomWeapon; Radius = 0.0 }
+                (None, [ nuke ], particles, dirty)
+            else
+                (None, [], particles, dirty)
         else
             (Some { ent with X = x; Y = y; VelX = vx; VelY = vy }, [], particles, dirty)
 
@@ -578,7 +644,7 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
             (Some ent, [], [], false)
 
     | EntityType.EMP ->
-        let vy = ent.VelY + 0.125  // Gravity (VelY++ in integer units)
+        let vy = ent.VelY + 0.04  // Light gravity
         let x = ent.X + ent.VelX
         let y = ent.Y + vy
         let radius = 3.0 + 2.0 * sin (float ent.Timer * 0.3)
@@ -589,12 +655,13 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
 
     | _ ->
         // Default: linear motion (Bullet, BulletAlt, PassThrough, Shield, etc.)
-        // Gravity for Bullet, BulletAlt, Shield (VelY++ each tick)
-        let hasGravity =
+        // Standard bullets get normal gravity; alt bullets get lighter gravity
+        let gravity =
             match ent.EType with
-            | EntityType.Bullet | EntityType.BulletAlt | EntityType.Shield -> true
-            | _ -> false
-        let vy = if hasGravity then ent.VelY + 0.125 else ent.VelY
+            | EntityType.Bullet -> 0.125
+            | EntityType.BulletAlt | EntityType.Shield -> 0.04
+            | _ -> 0.0
+        let vy = ent.VelY + gravity
         // BulletAlt has VelY clamp of 128 integer = 16.0 float
         let vy =
             if ent.EType = EntityType.BulletAlt then min vy 16.0 else vy
@@ -658,6 +725,42 @@ let applyBlackholePull (entities: Entity list) (players: Player list) (numPlayer
 
     (entities, players)
 
+// ─── Magnofilter Pull Pass ─────────────────────────────────────────────
+// Players with Magno flag attract enemy projectiles toward themselves.
+
+let magnofilterPullRadius = 60.0
+let magnofilterStrength = 0.25
+
+let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: int) : Entity list =
+    let magnoPlayers =
+        players |> List.indexed |> List.filter (fun (i, p) ->
+            i < numPlayers && p.Alive && p.Flags.HasFlag(PlayerFlags.Magno))
+    if magnoPlayers.IsEmpty then entities else
+
+    entities |> List.map (fun ent ->
+        // Only pull movable projectiles (not mines, blackholes, expanding, etc.)
+        match ent.EType with
+        | EntityType.Bullet | EntityType.BulletAlt | EntityType.Heavy
+        | EntityType.Flame | EntityType.EMP | EntityType.Exploding
+        | EntityType.Shrapnel | EntityType.Ricochet | EntityType.Laser ->
+            let mutable vx = ent.VelX
+            let mutable vy = ent.VelY
+            for (pi, mp) in magnoPlayers do
+                if pi <> ent.Owner then  // Don't attract own bullets
+                    let px = mp.PosX / PositionScale
+                    let py = mp.PosY / PositionScale
+                    let dx = px - ent.X
+                    let dy = py - ent.Y
+                    let dist = sqrt (dx*dx + dy*dy) + 0.1
+                    if dist < magnofilterPullRadius then
+                        let force = magnofilterStrength * (1.0 - dist / magnofilterPullRadius)
+                        vx <- vx + dx / dist * force
+                        vy <- vy + dy / dist * force
+            if vx <> ent.VelX || vy <> ent.VelY then
+                { ent with VelX = vx; VelY = vy }
+            else ent
+        | _ -> ent)
+
 // ─── Bullet-Player Collision ───────────────────────────────────────────
 // Returns (updated Player list, updated Entity list, new Particle list, terrainModified)
 
@@ -682,7 +785,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                         | EntityType.Blackhole -> 6.0
                         | EntityType.Flame -> max 2.0 (float ent.Timer * 0.3)
                         | _ -> 4.0
-                    let playerRadius = 4.0
+                    let playerRadius = 3.0
                     let px = p.PosX / PositionScale
                     let py = p.PosY / PositionScale
 
@@ -776,7 +879,12 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 newParticles <- newParticles @ spawnExplosion gs.Rng ent.X ent.Y 10 2.0 20 (ent.Owner % 4)
                                 ent <- { ent with EType = EntityType.None }  // Mark for removal
                             | _ ->
-                                ent <- { ent with EType = EntityType.None }  // Mark for removal
+                                if ent.WeaponIdx = WeaponType.AtomWeapon then
+                                    // Atom weapon: detonate into nuke on player hit
+                                    ent <- { ent with EType = EntityType.Nuke; Radius = 0.0
+                                                      VelX = ent.VelX * 0.2; VelY = ent.VelY * 0.2 }
+                                else
+                                    ent <- { ent with EType = EntityType.None }  // Mark for removal
 
                             // Credit kill
                             if np.Health <= DeathThreshold then
@@ -804,7 +912,7 @@ let checkPlayerCollision (players: Player list) (numPlayers: int) : Player list 
                 let y1 = p1.PosY / PositionScale
                 let x2 = p2.PosX / PositionScale
                 let y2 = p2.PosY / PositionScale
-                let collisionDist = 8.0
+                let collisionDist = 6.0
                 if collides x1 y1 (collisionDist/2.0) x2 y2 (collisionDist/2.0) then
                     let dx = x2 - x1
                     let dy = y2 - y1
@@ -826,10 +934,276 @@ let updateParticle (p: Particle) : Particle option =
     if life <= 0 then None
     else Some { p with X = x; Y = y; VelY = vy; Life = life }
 
+// ─── CPU AI ────────────────────────────────────────────────────────────
+// Full AI: lead-shot aiming, projectile dodging, weapon-aware tactics,
+// gravity-compensated movement, terrain/boundary avoidance, per-CPU personality.
+
+// AI personality traits derived from player index — gives each CPU a different style
+type AiPersonality =
+    { AimTolerance: float       // degrees — how well-aimed before firing
+      FireRange: float          // pixels — max engagement distance
+      Aggression: float         // 0..1 — preference for closing distance
+      DodgeRadius: float        // pixels — threat detection range
+      SpecialUseChance: float } // 0..1 — how often to use DOWN special
+
+let aiPersonalities = [|
+    { AimTolerance = 12.0; FireRange = 160.0; Aggression = 0.7; DodgeRadius = 50.0; SpecialUseChance = 0.3 }  // Aggressive
+    { AimTolerance = 8.0;  FireRange = 200.0; Aggression = 0.4; DodgeRadius = 60.0; SpecialUseChance = 0.5 }  // Sniper
+    { AimTolerance = 18.0; FireRange = 120.0; Aggression = 0.9; DodgeRadius = 40.0; SpecialUseChance = 0.4 }  // Brawler
+    { AimTolerance = 10.0; FireRange = 180.0; Aggression = 0.6; DodgeRadius = 55.0; SpecialUseChance = 0.6 }  // Balanced
+|]
+
+let cpuAI (gs: GameState) : GameState =
+    let players =
+        gs.Players |> List.mapi (fun i p ->
+            if i >= gs.NumPlayers || not p.IsCpu || not p.Alive then p
+            else
+                let personality = aiPersonalities[i % aiPersonalities.Length]
+                let px = p.PosX / PositionScale
+                let py = p.PosY / PositionScale
+                let tick = gs.GameTick
+                let phase = (tick + i * 37) % 13  // per-player phase for jitter
+
+                // ── Find nearest alive enemy ──
+                let mutable bestDist = Double.MaxValue
+                let mutable bestIdx = -1
+                for j in 0..gs.NumPlayers-1 do
+                    if j <> i && gs.Players[j].Alive then
+                        let ex = gs.Players[j].PosX / PositionScale
+                        let ey = gs.Players[j].PosY / PositionScale
+                        let dx = ex - px
+                        let dy = ey - py
+                        let d = dx*dx + dy*dy
+                        if d < bestDist then bestDist <- d; bestIdx <- j
+
+                if bestIdx < 0 then
+                    // No enemies alive — drift
+                    { p with KeyUp = false; KeyLeft = false; KeyRight = false; KeyFire = false; KeyDown = false }
+                else
+                    let enemy = gs.Players[bestIdx]
+                    let ex = enemy.PosX / PositionScale
+                    let ey = enemy.PosY / PositionScale
+                    let evx = enemy.VelX  // enemy velocity (internal units, = px/tick)
+                    let evy = enemy.VelY
+                    let dx = ex - px
+                    let dy = ey - py
+                    let dist = sqrt (dx*dx + dy*dy) + 0.1
+
+                    // ── Lead-shot prediction ──
+                    // Estimate bullet travel time, then predict where enemy will be
+                    let w = getWeapon p.WeaponType
+                    let bulletSpeed = max 1.0 w.ProjectileSpeed
+                    let travelTicks = dist / bulletSpeed
+                    // Predict enemy position accounting for gravity on enemy
+                    let predX = ex + evx * travelTicks
+                    let predY = ey + evy * travelTicks + 0.5 * GravityAccel * travelTicks * travelTicks
+                    // Clamp prediction to arena
+                    let predX = clampF 5.0 (ArenaWidth - 5.0) predX
+                    let predY = clampF 5.0 (ArenaHeight - 5.0) predY
+
+                    // ── Target angle toward predicted position ──
+                    let tdx = predX - px
+                    let tdy = predY - py
+                    let targetAngle =
+                        let a = atan2 tdx (-tdy) * 180.0 / Math.PI
+                        if a < 0.0 then a + 360.0 else a
+                    let mutable diff = targetAngle - p.Angle
+                    if diff > 180.0 then diff <- diff - 360.0
+                    if diff < -180.0 then diff <- diff + 360.0
+
+                    let turnLeft = diff > 3.0
+                    let turnRight = diff < -3.0
+
+                    // ── Weapon-specific fire range and aim tolerance ──
+                    let aimTol, fireRange =
+                        match p.WeaponType with
+                        | WeaponType.HellFire -> 25.0, 80.0           // spray — wide aim, close range
+                        | WeaponType.Machinegun -> 14.0, 170.0        // rapid — moderate
+                        | WeaponType.Fan -> 35.0, 130.0               // wide arc
+                        | WeaponType.Multicannon -> 180.0, 100.0      // 360° burst — any angle, close
+                        | WeaponType.Mine -> 90.0, 40.0               // drop when enemy is very close
+                        | WeaponType.Sonicboom -> 180.0, 60.0         // expanding ring — any angle, close
+                        | WeaponType.Blackhole -> 180.0, 80.0         // gravity well — any angle, close
+                        | WeaponType.AtomWeapon -> 10.0, 250.0        // precise, long range
+                        | WeaponType.Missile -> 12.0, 250.0           // homing, long range
+                        | WeaponType.Dumbfire -> 10.0, 200.0          // straight shot, long range
+                        | WeaponType.Dirtclod -> 15.0, 180.0          // lobbed
+                        | WeaponType.Headspinner -> 12.0, 150.0       // stun
+                        | WeaponType.Freezer -> 12.0, 150.0           // shield
+                        | WeaponType.ToxicDump -> 90.0, 30.0          // placed at feet
+                        | WeaponType.RubberBullets -> 14.0, 150.0     // bouncing
+                        | WeaponType.Magnofilter -> 180.0, 0.0        // utility — never "fire"
+                        | WeaponType.RearTurret -> 170.0, 120.0       // fires behind — reversed aim
+                        | _ -> personality.AimTolerance, personality.FireRange
+
+                    let aimed = abs diff < aimTol
+                    let inRange = dist < fireRange
+                    let shouldFire =
+                        aimed && inRange && phase <> 0  // skip 1/13 ticks
+
+                    // ── Rear turret: check if enemy is BEHIND ──
+                    let shouldFire =
+                        if p.WeaponType = WeaponType.RearTurret then
+                            // Fire when enemy is roughly behind (diff from rear > 150°)
+                            abs diff > 150.0 && dist < fireRange && phase <> 0
+                        else shouldFire
+
+                    // ── Dodge incoming projectiles ──
+                    let mutable threatDX = 0.0
+                    let mutable threatDY = 0.0
+                    let mutable threatCount = 0
+                    for ent in gs.Entities do
+                        if ent.Owner <> i && ent.EType <> EntityType.None then
+                            let edx = ent.X - px
+                            let edy = ent.Y - py
+                            let eDist = sqrt (edx*edx + edy*edy)
+                            if eDist < personality.DodgeRadius then
+                                // Check if projectile is heading toward us
+                                let dot = edx * ent.VelX + edy * ent.VelY
+                                if dot < 0.0 then  // moving toward us
+                                    // Accumulate threat direction (away from projectile)
+                                    let norm = eDist + 0.1
+                                    threatDX <- threatDX - edx / norm
+                                    threatDY <- threatDY - edy / norm
+                                    threatCount <- threatCount + 1
+
+                    let dodging = threatCount > 0
+                    let dodgeAngle =
+                        if dodging then
+                            // Perpendicular to threat — flee sideways
+                            let a = atan2 threatDX (-threatDY) * 180.0 / Math.PI
+                            if a < 0.0 then a + 360.0 else a
+                        else 0.0
+
+                    // When dodging, override turn direction toward escape angle
+                    let turnLeft, turnRight =
+                        if dodging && threatCount >= 2 then
+                            let mutable dodgeDiff = dodgeAngle - p.Angle
+                            if dodgeDiff > 180.0 then dodgeDiff <- dodgeDiff - 360.0
+                            if dodgeDiff < -180.0 then dodgeDiff <- dodgeDiff + 360.0
+                            (dodgeDiff > 3.0, dodgeDiff < -3.0)
+                        else (turnLeft, turnRight)
+
+                    // ── Movement: gravity compensation + terrain avoidance ──
+                    let rad = degToRad (p.Angle + 90.0)
+                    let cosR = cos rad
+                    let sinR = sin rad
+
+                    // Multi-distance terrain probing (10px, 20px, 35px ahead)
+                    let blocked10 =
+                        let px2 = px + cosR * 10.0
+                        let py2 = py - sinR * 10.0
+                        match gs.Level with
+                        | Some level -> Terrain.isWall (Terrain.terrainAt level.Pixels px2 py2)
+                        | None -> hitsWall gs.Level px2 py2 3.0
+                    let blocked20 =
+                        let px2 = px + cosR * 20.0
+                        let py2 = py - sinR * 20.0
+                        match gs.Level with
+                        | Some level -> Terrain.isWall (Terrain.terrainAt level.Pixels px2 py2)
+                        | None -> hitsWall gs.Level px2 py2 3.0
+                    let blocked35 =
+                        let px2 = px + cosR * 35.0
+                        let py2 = py - sinR * 35.0
+                        match gs.Level with
+                        | Some level -> Terrain.isWall (Terrain.terrainAt level.Pixels px2 py2)
+                        | None -> hitsWall gs.Level px2 py2 3.0
+
+                    // Boundary avoidance
+                    let probeX = px + cosR * 15.0
+                    let probeY = py - sinR * 15.0
+                    let boundaryBlocked =
+                        probeX < 8.0 || probeX > ArenaWidth - 8.0 ||
+                        probeY < 8.0 || probeY > ArenaHeight - 8.0
+
+                    // Water detection (avoid flying into water)
+                    let inWater =
+                        match gs.Level with
+                        | Some level -> Terrain.isOnWater level.Pixels px py
+                        | None -> false
+                    let waterAhead =
+                        match gs.Level with
+                        | Some level ->
+                            let wx = px + cosR * 15.0
+                            let wy = py - sinR * 15.0
+                            Terrain.isOnWater level.Pixels wx wy
+                        | None -> false
+
+                    // Falling fast — should thrust to brake regardless
+                    let fallingFast = p.VelY > 1.0
+                    // Moving fast in general
+                    let speed = sqrt (p.VelX * p.VelX + p.VelY * p.VelY)
+
+                    let shouldThrust =
+                        if blocked10 || boundaryBlocked then false
+                        elif fallingFast then true  // always brake a fall
+                        elif inWater then true  // escape water
+                        elif blocked20 || blocked35 then
+                            // Slow down — only thrust if speed is low
+                            speed < 0.8
+                        elif waterAhead then false  // don't fly into water
+                        elif dodging then true  // thrust to dodge
+                        else
+                            // Normal pursuit: thrust toward enemy, with personality aggression
+                            let wantClose = dist > 50.0 * (2.0 - personality.Aggression)
+                            let tooClose = dist < 25.0
+                            (wantClose || phase < 8) && not tooClose
+
+                    // ── Special weapon (DOWN key) ──
+                    let useSpecial =
+                        match p.WeaponType with
+                        | WeaponType.Magnofilter ->
+                            // Toggle magno when enemy projectiles are nearby
+                            threatCount > 0 && not (p.Flags.HasFlag(PlayerFlags.Magno))
+                        | WeaponType.Multicannon ->
+                            // Use 360° burst when enemy is close (regular fire)
+                            // Use tight burst (special) when aimed at range
+                            aimed && dist > 60.0 && dist < 150.0 && phase % 5 = 0
+                        | WeaponType.Sonicboom ->
+                            // Use expanding ring when enemy very close
+                            dist < 50.0 && phase % 4 = 0
+                        | WeaponType.Blackhole ->
+                            // Drop blackhole when enemy is close
+                            dist < 70.0 && phase % 6 = 0
+                        | WeaponType.HellFire ->
+                            // Wide flame spread when close
+                            dist < 60.0 && aimed && phase % 3 = 0
+                        | WeaponType.Machinegun ->
+                            // Random offset shot for suppression
+                            aimed && inRange && phase % 4 = 0
+                        | WeaponType.Fan ->
+                            // Fan arc when somewhat aimed
+                            abs diff < 40.0 && dist < 120.0 && phase % 5 = 0
+                        | WeaponType.Missile ->
+                            // Missile recoil shot — use when aimed
+                            aimed && dist > 80.0 && phase % 7 = 0
+                        | WeaponType.Mine ->
+                            // Drop mine when falling or enemy is very close behind
+                            (abs diff > 120.0 && dist < 50.0) || (p.VelY > 0.5 && phase % 5 = 0)
+                        | WeaponType.ToxicDump ->
+                            // Drop toxic when standing still or enemy close
+                            dist < 40.0 && phase % 4 = 0
+                        | WeaponType.RubberBullets ->
+                            // Single bouncing shot when aimed
+                            aimed && inRange && phase % 5 = 0
+                        | _ -> false
+
+                    { p with
+                        KeyUp = shouldThrust
+                        KeyLeft = turnLeft
+                        KeyRight = turnRight
+                        KeyFire = shouldFire
+                        KeyDown = useSpecial })
+    { gs with Players = players }
+
 // ─── Main Game Tick ────────────────────────────────────────────────────
 
 let gameTick (gs: GameState) : GameState =
     let gs = { gs with GameTick = gs.GameTick + 1 }
+
+    // CPU AI: set key states for computer-controlled players
+    let gs = if gs.CpuCount > 0 then cpuAI gs else gs
+
     let mutable terrainDirty = gs.TerrainDirty
 
     // Update all players — collect new entities and particles
@@ -869,6 +1243,9 @@ let gameTick (gs: GameState) : GameState =
     // Blackhole pull pass
     let entities, players = applyBlackholePull entities players gs.NumPlayers
 
+    // Magnofilter pull pass
+    let entities = applyMagnoPull entities players gs.NumPlayers
+
     // Bullet-player collision
     let gs = { gs with Players = players; Entities = entities; Particles = particles; TerrainDirty = terrainDirty }
     let (players, entities, collisionParts, cDirty) = checkBulletPlayerCollision gs players entities
@@ -900,11 +1277,13 @@ let gameTick (gs: GameState) : GameState =
 // ─── Init Round ────────────────────────────────────────────────────────
 
 let initRound (gs: GameState) : GameState =
+    let cpuStart = gs.NumPlayers - gs.CpuCount  // First CPU player index
     let players =
         gs.Players |> List.mapi (fun i p ->
             if i < gs.NumPlayers then
                 let p = spawnPlayer gs.Rng gs.Level p
-                { p with WeaponType = 14; Ammo = 999; KillCount = 0; DeathCount = 0 }
+                { p with WeaponType = WeaponType.Machinegun; Ammo = 999; KillCount = 0; DeathCount = 0
+                         IsCpu = i >= cpuStart }
             else p)
     { gs with
         Players = players

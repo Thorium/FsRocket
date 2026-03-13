@@ -27,6 +27,31 @@ type EntityType =
     | Decel          = 32   // decelerating projectile
     | Expanding      = 33   // expanding entity (sonicboom ring)
 
+// ─── Weapon Types (indices into weapons[] array) ────────────────────────
+
+type WeaponType =
+    | NoWeapon      = 0
+    | Cloaker       = 1
+    | Magnofilter   = 2
+    | RearTurret    = 3
+    | Multicannon   = 4
+    | RubberBullets = 5
+    | Mine          = 6
+    | Nucleus       = 7
+    | Dirtclod      = 8
+    | Headspinner   = 9
+    | Freezer       = 10
+    | AtomWeapon    = 11
+    | Troopers      = 12
+    | HellFire      = 13
+    | Machinegun    = 14
+    | Sonicboom     = 15
+    | Fan           = 16
+    | ToxicDump     = 17
+    | Dumbfire      = 18
+    | Missile       = 19
+    | Blackhole     = 20
+
 // ─── Weapon Info Record ────────────────────────────────────────────────
 
 type WeaponInfo =
@@ -73,7 +98,7 @@ let weapons = [|
 
     // #5 — RUBBER BLTS (24 bullets in full circle, 15° apart)
     { Name = "RUBBER BLTS";  ReloadTicks = 10;  Damage = 2;  CollisionRadius = 96
-      ProjectileSpeed = 3.5;   EntityType = EntityType.Bullet; Enabled = true }
+      ProjectileSpeed = 3.5;   EntityType = EntityType.Ricochet; Enabled = true }
 
     // #6 — MINE (proximity, larger radius, arms after 25 ticks)
     { Name = "MINE";         ReloadTicks = 30;  Damage = 30; CollisionRadius = 128
@@ -95,9 +120,9 @@ let weapons = [|
     { Name = "FREEZER";      ReloadTicks = 50;  Damage = 0;  CollisionRadius = 128
       ProjectileSpeed = 3.5;   EntityType = EntityType.Shield; Enabled = true }
 
-    // #11 — ATOM WEAPON (nuke — massive AoE damage + knockback)
+    // #11 — ATOM WEAPON (nuke — travels as heavy projectile, detonates on impact)
     { Name = "ATOM WEAPON";  ReloadTicks = 250; Damage = 15; CollisionRadius = 256
-      ProjectileSpeed = 3.5;   EntityType = EntityType.Nuke;   Enabled = true }
+      ProjectileSpeed = 3.5;   EntityType = EntityType.Heavy;  Enabled = true }
 
     // #12 — TROOPERS (ground units that fall and shoot — not yet implemented)
     { Name = "TROOPERS";     ReloadTicks = 50;  Damage = 2;  CollisionRadius = 96
@@ -136,8 +161,9 @@ let weapons = [|
       ProjectileSpeed = 0.0;   EntityType = EntityType.Blackhole; Enabled = true }
 |]
 
-/// Get weapon by 0-based index
-let getWeapon idx =
+/// Get weapon by WeaponType enum
+let getWeapon (wt: WeaponType) =
+    let idx = int wt
     if idx >= 0 && idx < weapons.Length then weapons[idx]
     else weapons[0]
 

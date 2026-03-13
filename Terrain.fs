@@ -6,13 +6,12 @@ module FsRocket.Terrain
 
 open System
 open System.IO
+open FsRocket.Physics
 
 // ─── Constants ─────────────────────────────────────────────────────────
 
 /// Arena is two stacked 320x200 VGA pages = 320x400
-let MapWidth = 320
-let MapHeight = 400
-let PageSize = 320 * 200  // 64000 bytes per VGA page (0xFA00)
+let PageSize = MapWidth * 200  // 64000 bytes per VGA page (0xFA00)
 
 /// Terrain color constants
 /// New model: only totally black (0x00) is penetrable (flyable).
