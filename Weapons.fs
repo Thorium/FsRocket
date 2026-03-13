@@ -51,6 +51,7 @@ type WeaponType =
     | Dumbfire      = 18
     | Missile       = 19
     | Blackhole     = 20
+    | Cannon        = 21
 
 // ─── Weapon Info Record ────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ type WeaponInfo =
       Enabled: bool }
 
 // ─── The 21 Weapons (indices 0..20, weapon type is 1-based in code) ────
-// Name and cost from DS:0008 table (15-byte entries)
+// Name and cost 
 // Damage from BulletHitPlayer switch
 // Collision radii from entity type checks
 // Projectile speeds from entity creation code
@@ -159,6 +160,10 @@ let weapons = [|
     // #20 — BLACKHOLE (gravity well, pulls players + entities, 1536px search)
     { Name = "BLACKHOLE";    ReloadTicks = 180; Damage = 2;  CollisionRadius = 256
       ProjectileSpeed = 0.0;   EntityType = EntityType.Blackhole; Enabled = true }
+
+    // #21 — CANNON (single-shot: Multicannon bullet type, ~0.3 second reload)
+    { Name = "CANNON";       ReloadTicks = 12;  Damage = 2;  CollisionRadius = 96
+      ProjectileSpeed = 4.0;   EntityType = EntityType.Bullet; Enabled = true }
 |]
 
 /// Get weapon by WeaponType enum

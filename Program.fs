@@ -55,16 +55,16 @@ let tryLoadLevel (gs: GameState) (name: string) : GameState option =
     else
         None
 
-// ─── Weapon cycling helper ─────────────────────────────────────────────
+// ─── Special weapon cycling helper ────────────────────────────────────
 
 let cycleWeapon (gs: GameState) (playerIdx: int) : GameState =
     if playerIdx < gs.NumPlayers then
         let p = gs.Players[playerIdx]
-        let mutable wt = (int p.WeaponType + 1) % weapons.Length
-        // Skip weapons that are not yet implemented or are placeholders
-        while not weapons[wt].Enabled do
+        let mutable wt = (int p.SpecialWeapon + 1) % weapons.Length
+        // Skip Cannon (main weapon), disabled weapons, and NoWeapon
+        while not weapons[wt].Enabled || wt = int WeaponType.Cannon do
             wt <- (wt + 1) % weapons.Length
-        let p = { p with WeaponType = enum<WeaponType> wt; Ammo = 999; ReloadTimer = 0 }
+        let p = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
         let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
         { gs with Players = players }
     else
@@ -76,11 +76,22 @@ type GameForm() as this =
     inherit Form()
 
     let mutable gs = createGameState 2
-    let mutable levelIdx = 0  // Index into levelFiles; -1 = no terrain
+    let mutable levelIdx = 0       // Index into levelFiles; -1 = no terrain
+    let mutable humanCount = 2     // Number of human players (keys 1-4)
+    let mutable cpuCount = 0       // Number of CPU players added on top of humans
+    let mutable isFullscreen = false
+    let mutable savedBorderStyle = FormBorderStyle.Sizable
+    let mutable savedWindowState = FormWindowState.Normal
     let timer = new Timer()
 
     // Key state tracking (multiple simultaneous keys)
     let keyStates = System.Collections.Generic.HashSet<Keys>()
+
+    let totalPlayers () = min 4 (humanCount + cpuCount)
+
+    let applyPlayerCount () =
+        let total = totalPlayers ()
+        gs <- { gs with NumPlayers = total; CpuCount = cpuCount; RoundActive = false }
 
     let switchLevel (delta: int) =
         // Cycle through: levelFiles[0], levelFiles[1], ..., (no terrain)
@@ -88,17 +99,40 @@ type GameForm() as this =
         let total = levelFiles.Length + 1
         levelIdx <- ((levelIdx + delta) % total + total) % total
         if levelIdx < levelFiles.Length then
+            let exeDir =
+                let loc = System.Reflection.Assembly.GetExecutingAssembly().Location
+                let dir = System.IO.Path.GetDirectoryName(loc)
+                if String.IsNullOrEmpty dir then "." else dir
+            let path = System.IO.Path.Combine(exeDir, levelFiles[levelIdx] + ".LEV")
             match tryLoadLevel gs levelFiles[levelIdx] with
-            | Some newGs -> gs <- { newGs with RoundActive = false }
-            | None -> gs <- { gs with RoundActive = false }
+            | Some newGs -> gs <- { newGs with RoundActive = false; LevelFilePath = path }
+            | None -> gs <- { gs with RoundActive = false; LevelFilePath = "" }
         else
-            gs <- { gs with Level = None; RoundActive = false }
+            gs <- { gs with Level = None; RoundActive = false; LevelFilePath = "" }
+
+    let toggleFullscreen () =
+        if not isFullscreen then
+            savedBorderStyle <- this.FormBorderStyle
+            savedWindowState <- this.WindowState
+            this.FormBorderStyle <- FormBorderStyle.None
+            this.WindowState <- FormWindowState.Maximized
+            isFullscreen <- true
+        else
+            this.FormBorderStyle <- savedBorderStyle
+            this.WindowState <- savedWindowState
+            isFullscreen <- false
 
     do
         // Load default level
-        match tryLoadLevel gs levelFiles[0] with
-        | Some newGs -> gs <- newGs
-        | None -> ()
+        let exeDir =
+            let loc = System.Reflection.Assembly.GetExecutingAssembly().Location
+            let dir = System.IO.Path.GetDirectoryName(loc)
+            if String.IsNullOrEmpty dir then "." else dir
+        if levelFiles.Length > 0 then
+            let path = System.IO.Path.Combine(exeDir, levelFiles[0] + ".LEV")
+            match tryLoadLevel gs levelFiles[0] with
+            | Some newGs -> gs <- { newGs with LevelFilePath = path }
+            | None -> ()
 
         this.Text <- "FsRocket Physics"
         this.ClientSize <- Size(960, 600)
@@ -106,8 +140,8 @@ type GameForm() as this =
         this.SetStyle(ControlStyles.AllPaintingInWmPaint ||| ControlStyles.UserPaint
                       ||| ControlStyles.OptimizedDoubleBuffer, true)
         this.KeyPreview <- true
-        this.FormBorderStyle <- FormBorderStyle.FixedSingle
-        this.MaximizeBox <- false
+        this.FormBorderStyle <- FormBorderStyle.Sizable
+        this.MaximizeBox <- true
         this.BackColor <- Color.Black
 
         // Timer at ~36 FPS
@@ -130,10 +164,11 @@ type GameForm() as this =
         | Keys.Space ->
             if not gs.RoundActive then
                 gs <- initRound gs
-        | Keys.D1 -> gs <- { gs with NumPlayers = 1; CpuCount = min gs.CpuCount 1; RoundActive = false }
-        | Keys.D2 -> gs <- { gs with NumPlayers = 2; CpuCount = min gs.CpuCount 2; RoundActive = false }
-        | Keys.D3 -> gs <- { gs with NumPlayers = 3; CpuCount = min gs.CpuCount 3; RoundActive = false }
-        | Keys.D4 -> gs <- { gs with NumPlayers = 4; CpuCount = min gs.CpuCount 4; RoundActive = false }
+        | Keys.F11 -> toggleFullscreen ()
+        | Keys.D1 -> humanCount <- 1; applyPlayerCount ()
+        | Keys.D2 -> humanCount <- 2; applyPlayerCount ()
+        | Keys.D3 -> humanCount <- 3; applyPlayerCount ()
+        | Keys.D4 -> humanCount <- 4; applyPlayerCount ()
         | Keys.F1 -> gs <- cycleWeapon gs 0
         | Keys.F2 -> gs <- cycleWeapon gs 1
         | Keys.F3 -> gs <- cycleWeapon gs 2
@@ -142,12 +177,12 @@ type GameForm() as this =
         | Keys.F6 -> switchLevel 1
         | Keys.F7 ->
             // Decrease CPU count (min 0)
-            let c = max 0 (gs.CpuCount - 1)
-            gs <- { gs with CpuCount = c }
+            cpuCount <- max 0 (cpuCount - 1)
+            applyPlayerCount ()
         | Keys.F8 ->
-            // Increase CPU count (max = NumPlayers)
-            let c = min gs.NumPlayers (gs.CpuCount + 1)
-            gs <- { gs with CpuCount = c }
+            // Increase CPU count — CPUs are in addition to humans, total capped at 4
+            cpuCount <- min (4 - humanCount) (cpuCount + 1)
+            applyPlayerCount ()
         | _ -> ()
 
         base.OnKeyDown(e)
@@ -205,8 +240,6 @@ type GameForm() as this =
     override this.OnPaint(e: PaintEventArgs) =
         renderFrame e.Graphics gs this.ClientSize.Width this.ClientSize.Height
         // Clear terrain dirty flag AFTER the frame is actually rendered.
-        // (Invalidate() only queues WM_PAINT; clearing before OnPaint runs
-        //  would cause the renderer to never see the dirty flag.)
         if gs.TerrainDirty then
             gs <- { gs with TerrainDirty = false }
 

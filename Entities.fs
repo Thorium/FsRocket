@@ -17,8 +17,10 @@ let createPlayer (index: int) : Player =
     { PosX = 0.0; PosY = 0.0; Angle = SpawnDirection
       VelX = 0.0; VelY = 0.0
       Flags = PlayerFlags.Active; Health = FullHealth
-      WeaponType = WeaponType.Machinegun  // Start with MACHINEGUN
-      ReloadTimer = 0; KeyUp = false; KeyLeft = false
+      WeaponType = WeaponType.Cannon       // Main: always Cannon
+      SpecialWeapon = WeaponType.Machinegun // Special: default Machinegun
+      ReloadTimer = 0; SpecialReloadTimer = 0
+      KeyUp = false; KeyLeft = false
       KeyRight = false; KeyFire = false; KeyDown = false
       Ammo = 999
       Color = playerColors[index % 4]; ShotCount = 0; WallHitCount = 0
@@ -47,6 +49,7 @@ let createGameState (numPlayers: int) : GameState =
       GameTick = 0
       RoundActive = false
       Level = None
+      LevelFilePath = ""
       TerrainDirty = false }
 
 // ─── Spawn a player at random position ─────────────────────────────────
@@ -71,6 +74,7 @@ let spawnPlayer (rng: Random) (level: LevelData option) (p: Player) : Player =
         StunTimer = 0
         Flags = PlayerFlags.Active
         ReloadTimer = 0
+        SpecialReloadTimer = 0
         AnimAngle = 0.0 }
 
 // ─── Spawn a bullet/projectile — returns new entity to add ─────────────

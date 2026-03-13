@@ -27,8 +27,10 @@ type Player =
       VelY: float
       Flags: PlayerFlags
       Health: int
-      WeaponType: WeaponType      // Weapon enum index into weapons[]
-      ReloadTimer: int          // Countdown to next shot
+      WeaponType: WeaponType      // Main weapon — always Cannon (fire key)
+      SpecialWeapon: WeaponType   // Special weapon — selected via F1-F4 (DOWN key)
+      ReloadTimer: int          // Countdown to next cannon shot
+      SpecialReloadTimer: int   // Countdown to next special weapon shot
       KeyUp: bool               // Key states set by input
       KeyLeft: bool
       KeyRight: bool
@@ -90,4 +92,5 @@ type GameState =
       GameTick: int
       RoundActive: bool
       Level: Terrain.LevelData option
+      LevelFilePath: string       // Full path to current .LEV file (empty = no terrain)
       TerrainDirty: bool }

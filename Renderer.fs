@@ -562,7 +562,7 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
     g.FillRectangle(cachedHudBgBrush, vx, vy + gameH, vw, hudH)
 
     let hudY = vy + gameH + 2
-    let weaponName = (getWeapon p.WeaponType).Name
+    let specialName = (getWeapon p.SpecialWeapon).Name
 
     // Player name and weapon
     let name = if p.IsCpu then $"CPU{playerIdx + 1}" else $"P{playerIdx + 1}"
@@ -582,8 +582,8 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
     use healthBrush = new SolidBrush(healthColor)
     g.FillRectangle(healthBrush, barX, barY, int (float barW * healthPct), barH)
 
-    // Weapon + ammo
-    let info = $"{weaponName} [{p.Ammo}]"
+    // Cannon (main) + special weapon
+    let info = $"CANNON  |  {specialName} [{p.Ammo}]"
     g.DrawString(info, cachedHudFont, cachedWhiteBrush, float32 (vx + 4), float32 (hudY + 14))
 
     // Kill/Death count
@@ -643,7 +643,7 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         y <- y + 24.0f
         g.DrawString("Press SPACE to start  |  F1-F4: weapon  |  1-4: players  |  ESC: quit", subFont, gray, cx, y)
         y <- y + 16.0f
-        g.DrawString("F5: prev level  |  F6: next level  |  F7/F8: CPU players", subFont, gray, cx, y)
+        g.DrawString("F5: prev level  |  F6: next level  |  F7/F8: CPU players  |  F11: Full-screen", subFont, gray, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
         y <- y + 18.0f

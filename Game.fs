@@ -113,87 +113,137 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
         p, [ makeProjectile p ownerIdx p.WeaponType ]
 
 // ─── Special Weapon Firing (DOWN key) ──────────────────────────────────
+// Uses p.SpecialWeapon. Every case applies a small backwards recoil kick.
 
 let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
-    let w = getWeapon p.WeaponType
+    let sw = p.SpecialWeapon
+    let w = getWeapon sw
 
-    match p.WeaponType with
+    // Recoil: push ship backwards (opposite to facing direction)
+    let rad = degToRad (p.Angle + 90.0)
+    let recoil = 0.3
+    let p = { p with
+                VelX = p.VelX - cos rad * recoil
+                VelY = p.VelY + sin rad * recoil
+                SpecialReloadTimer = w.ReloadTicks }
+
+    match sw with
     | WeaponType.Magnofilter ->
-        // MAGNOFILTER — toggle flag
+        // MAGNOFILTER — toggle flag (no projectile, still gets recoil)
         let flags =
             if p.Flags.HasFlag(PlayerFlags.Magno) then p.Flags &&& ~~~PlayerFlags.Magno
             else p.Flags ||| PlayerFlags.Magno
         { p with Flags = flags; KeyDown = false }, []
 
     | WeaponType.RearTurret ->
-        // REAR TURRET special: set cooldown
-        { p with ReloadTimer = w.ReloadTicks }, []
+        // REAR TURRET: fire behind
+        p, [ makeProjectileAngled p ownerIdx sw 180.0 ]
 
     | WeaponType.Multicannon ->
-        // MULTICANNON special: tight forward burst of 5
+        // MULTICANNON: tight forward burst of 5
         let ents = [ for offset in [ -4.0; -2.0; 0.0; 2.0; 4.0 ] ->
-                        makeProjectileAngled p ownerIdx p.WeaponType offset ]
-        { p with ReloadTimer = w.ReloadTicks }, ents
+                        makeProjectileAngled p ownerIdx sw offset ]
+        p, ents
 
     | WeaponType.Nucleus ->
-        // NUCLEUS special: shield at player pos
+        // NUCLEUS: shield orbiter at player pos
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         EType = EntityType.Shield; Owner = ownerIdx; WeaponIdx = WeaponType.Nucleus }
-        { p with ReloadTimer = w.ReloadTicks }, [ ent ]
+        p, [ ent ]
 
     | WeaponType.HellFire ->
-        // HELL FIRE special: wider spread
+        // HELL FIRE: wider spread burst
         let ents = [ for _ in 1..3 ->
                         let spread = float (rng.Next 21 - 10)
-                        makeProjectileAngled p ownerIdx p.WeaponType spread ]
-        { p with ReloadTimer = w.ReloadTicks }, ents
+                        makeProjectileAngled p ownerIdx sw spread ]
+        p, ents
 
     | WeaponType.Machinegun ->
-        // MACHINEGUN special: random offset
+        // MACHINEGUN: random-offset shot
         let randOffset = float (rng.Next 21 - 10)
-        { p with ReloadTimer = w.ReloadTicks }, [ makeProjectileAngled p ownerIdx p.WeaponType randOffset ]
+        p, [ makeProjectileAngled p ownerIdx sw randOffset ]
 
     | WeaponType.Fan ->
-        // FAN special: fan arc
-        let ents = [ for i in -4..4 -> makeProjectileAngled p ownerIdx p.WeaponType (float i * 8.0) ]
-        { p with ReloadTimer = w.ReloadTicks }, ents
+        // FAN: wide arc
+        let ents = [ for i in -4..4 -> makeProjectileAngled p ownerIdx sw (float i * 8.0) ]
+        p, ents
 
     | WeaponType.Missile ->
-        // MISSILE special: fire with recoil
-        let ent = makeProjectile p ownerIdx p.WeaponType
-        let rad = degToRad (p.Angle + 90.0)
-        { p with
-            VelX = p.VelX - cos rad * 0.5
-            VelY = p.VelY + sin rad * 0.5
-            ReloadTimer = w.ReloadTicks }, [ ent ]
+        // MISSILE: homing shot
+        let ent = makeProjectile p ownerIdx sw
+        p, [ ent ]
 
     | WeaponType.Blackhole ->
-        // BLACKHOLE special: stationary gravity well + counter
+        // BLACKHOLE: stationary gravity well
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         EType = EntityType.Blackhole; Owner = ownerIdx; WeaponIdx = WeaponType.Blackhole }
-        { p with
-            BlackholeCounter = min 5 (p.BlackholeCounter + 1)
-            ReloadTimer = w.ReloadTicks }, [ ent ]
+        { p with BlackholeCounter = min 5 (p.BlackholeCounter + 1) }, [ ent ]
 
     | WeaponType.AtomWeapon ->
-        // ATOM WEAPON special: same as regular fire — travels as heavy projectile, detonates on impact
-        let rad = degToRad (p.Angle + 90.0)
+        // ATOM WEAPON: heavy projectile, detonates on impact
         let ent = { defaultEntity with
                         X = p.PosX / PositionScale; Y = p.PosY / PositionScale
                         VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
                         EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.AtomWeapon }
-        { p with ReloadTimer = w.ReloadTicks }, [ ent ]
+        p, [ ent ]
 
     | WeaponType.RubberBullets ->
-        // RUBBER BLTS special: single bouncing bullet forward
-        let e = makeProjectile p ownerIdx p.WeaponType
-        { p with ReloadTimer = w.ReloadTicks }, [ { e with EType = EntityType.Ricochet; SubType = 0 } ]
+        // RUBBER BLTS: single bouncing bullet forward
+        let e = makeProjectile p ownerIdx sw
+        p, [ { e with EType = EntityType.Ricochet; SubType = 0 } ]
+
+    | WeaponType.Mine ->
+        // MINE: stationary, arms after 25 ticks
+        let ent = { defaultEntity with
+                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+                        EType = EntityType.Mine; Owner = ownerIdx; Timer = -25; WeaponIdx = WeaponType.Mine }
+        p, [ ent ]
+
+    | WeaponType.Dirtclod ->
+        // DIRTCLOD: lobbed with gravity
+        let ent = { defaultEntity with
+                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
+                        EType = EntityType.Exploding; Owner = ownerIdx; WeaponIdx = WeaponType.Dirtclod }
+        p, [ ent ]
+
+    | WeaponType.Headspinner ->
+        // HEADSPINNER: EMP/stun shot
+        p, [ makeProjectile p ownerIdx sw ]
+
+    | WeaponType.Freezer ->
+        // FREEZER: shield entity on target
+        p, [ makeProjectile p ownerIdx sw ]
+
+    | WeaponType.Sonicboom ->
+        // SONICBOOM: expanding ring
+        let ent = { defaultEntity with
+                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+                        EType = EntityType.Expanding; Owner = ownerIdx
+                        Radius = 4.0; WeaponIdx = WeaponType.Sonicboom }
+        p, [ ent ]
+
+    | WeaponType.ToxicDump ->
+        // TOXIC DUMP: persisting flame pool
+        let ent = { defaultEntity with
+                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+                        EType = EntityType.Flame; Owner = ownerIdx
+                        Timer = -200; Radius = 8.0; WeaponIdx = WeaponType.ToxicDump }
+        p, [ ent ]
+
+    | WeaponType.Dumbfire ->
+        // DUMBFIRE: fast unguided rocket
+        let ent = { defaultEntity with
+                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
+                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.Dumbfire }
+        p, [ ent ]
 
     | _ ->
-        // Default: standard forward fire
-        { p with ReloadTimer = w.ReloadTicks }, [ makeProjectile p ownerIdx p.WeaponType ]
+        // Default: standard forward shot
+        p, [ makeProjectile p ownerIdx sw ]
 
 // ─── Player Update ─────────────────────────────────────────────────────
 // Returns (updated Player, new Entities, new Particles, terrainModified)
@@ -357,8 +407,9 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
         else
             (posX, posY, velX, velY, angle, health, wallHitCount, wallDmgCooldown)
 
-    // Reload timer
+    // Reload timers
     let reloadTimer = if p.ReloadTimer > 0 then p.ReloadTimer - 1 else 0
+    let specialReloadTimer = if p.SpecialReloadTimer > 0 then p.SpecialReloadTimer - 1 else 0
 
     // Build partially-updated player
     let p = { p with
@@ -367,24 +418,21 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 Health = health; WallHitCount = wallHitCount
                 InvTimer = invTimer; WallDmgCooldown = wallDmgCooldown
                 StunTimer = stunTimer
-                AnimAngle = animAngle; ReloadTimer = reloadTimer }
+                AnimAngle = animAngle; ReloadTimer = reloadTimer
+                SpecialReloadTimer = specialReloadTimer }
 
-    // Weapon firing
+    // Cannon firing (main fire key) — always single-shot Cannon
     let p, newEnts1 =
         if p.KeyFire && p.ReloadTimer = 0 && p.Ammo > 0 && canControl then
             fireWeapon gs.Rng gs.Level p idx
         else p, []
 
-    // Special weapon firing (DOWN key)
+    // Special weapon firing (DOWN key) — uses SpecialWeapon + SpecialReloadTimer
     let p, newEnts2 =
-        if p.KeyDown && canControl then
-            match p.WeaponType with
-            | WeaponType.Troopers -> p, []  // TROOPERS — DOWN ignored
-            | WeaponType.Magnofilter | WeaponType.HellFire | WeaponType.Machinegun ->
-                fireSpecial gs.Rng gs.Level p idx
-            | _ ->
-                if p.ReloadTimer = 0 then fireSpecial gs.Rng gs.Level p idx
-                else p, []
+        if p.KeyDown && p.SpecialReloadTimer = 0 && canControl then
+            match p.SpecialWeapon with
+            | WeaponType.Troopers -> p, []  // TROOPERS — not implemented
+            | _ -> fireSpecial gs.Rng gs.Level p idx
         else p, []
 
     // Death check
@@ -1014,39 +1062,14 @@ let cpuAI (gs: GameState) : GameState =
                     let turnLeft = diff > 3.0
                     let turnRight = diff < -3.0
 
-                    // ── Weapon-specific fire range and aim tolerance ──
-                    let aimTol, fireRange =
-                        match p.WeaponType with
-                        | WeaponType.HellFire -> 25.0, 80.0           // spray — wide aim, close range
-                        | WeaponType.Machinegun -> 14.0, 170.0        // rapid — moderate
-                        | WeaponType.Fan -> 35.0, 130.0               // wide arc
-                        | WeaponType.Multicannon -> 180.0, 100.0      // 360° burst — any angle, close
-                        | WeaponType.Mine -> 90.0, 40.0               // drop when enemy is very close
-                        | WeaponType.Sonicboom -> 180.0, 60.0         // expanding ring — any angle, close
-                        | WeaponType.Blackhole -> 180.0, 80.0         // gravity well — any angle, close
-                        | WeaponType.AtomWeapon -> 10.0, 250.0        // precise, long range
-                        | WeaponType.Missile -> 12.0, 250.0           // homing, long range
-                        | WeaponType.Dumbfire -> 10.0, 200.0          // straight shot, long range
-                        | WeaponType.Dirtclod -> 15.0, 180.0          // lobbed
-                        | WeaponType.Headspinner -> 12.0, 150.0       // stun
-                        | WeaponType.Freezer -> 12.0, 150.0           // shield
-                        | WeaponType.ToxicDump -> 90.0, 30.0          // placed at feet
-                        | WeaponType.RubberBullets -> 14.0, 150.0     // bouncing
-                        | WeaponType.Magnofilter -> 180.0, 0.0        // utility — never "fire"
-                        | WeaponType.RearTurret -> 170.0, 120.0       // fires behind — reversed aim
-                        | _ -> personality.AimTolerance, personality.FireRange
+                    // ── Cannon aim tolerance (main fire key — always Cannon) ──
+                    let aimTol = personality.AimTolerance
+                    let fireRange = personality.FireRange
 
                     let aimed = abs diff < aimTol
                     let inRange = dist < fireRange
                     let shouldFire =
                         aimed && inRange && phase <> 0  // skip 1/13 ticks
-
-                    // ── Rear turret: check if enemy is BEHIND ──
-                    let shouldFire =
-                        if p.WeaponType = WeaponType.RearTurret then
-                            // Fire when enemy is roughly behind (diff from rear > 150°)
-                            abs diff > 150.0 && dist < fireRange && phase <> 0
-                        else shouldFire
 
                     // ── Dodge incoming projectiles ──
                     let mutable threatDX = 0.0
@@ -1277,13 +1300,20 @@ let gameTick (gs: GameState) : GameState =
 // ─── Init Round ────────────────────────────────────────────────────────
 
 let initRound (gs: GameState) : GameState =
+    // Reload level terrain from disk to reset any ammo damage
+    let gs =
+        if gs.LevelFilePath <> "" && System.IO.File.Exists gs.LevelFilePath then
+            let freshLevel = Terrain.loadLevel gs.LevelFilePath
+            { gs with Level = Some freshLevel; TerrainDirty = true }
+        else gs
+
     let cpuStart = gs.NumPlayers - gs.CpuCount  // First CPU player index
     let players =
         gs.Players |> List.mapi (fun i p ->
             if i < gs.NumPlayers then
                 let p = spawnPlayer gs.Rng gs.Level p
-                { p with WeaponType = WeaponType.Machinegun; Ammo = 999; KillCount = 0; DeathCount = 0
-                         IsCpu = i >= cpuStart }
+                { p with WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
+                         ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = i >= cpuStart }
             else p)
     { gs with
         Players = players

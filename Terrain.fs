@@ -11,13 +11,13 @@ open FsRocket.Physics
 // ─── Constants ─────────────────────────────────────────────────────────
 
 /// Arena is two stacked 320x200 VGA pages = 320x400
-let PageSize = MapWidth * 200  // 64000 bytes per VGA page (0xFA00)
+let PageSize = MapWidth * 200  // 64000 bytes per VGA page
 
 /// Terrain color constants
-/// New model: only totally black (0x00) is penetrable (flyable).
-/// Water (0x27) is also penetrable but applies friction.
+/// New model: only totally black is penetrable (flyable).
+/// Water is also penetrable but applies friction.
 /// Everything else is solid wall.
-/// Dark gray pixels (0x5C..0x5F) are indestructible walls that cannot be erased by ammo.
+/// Dark gray pixels are indestructible walls that cannot be erased by ammo.
 let WaterColor = 0x27uy          // Water surface — penetrable, friction applies
 let IndestructibleMin = 0x5Cuy   // Indestructible wall range low (dark gray)
 let IndestructibleMax = 0x5Fuy   // Indestructible wall range high
@@ -35,7 +35,7 @@ type SpawnPoint =
 
 type LevelData =
     { Pixels: byte array           // 320x400 flat pixel array (row-major)
-      Viewports: int * int * int * int  // (vx0, vy0, vx1, vy1) from last 8 bytes
+      Viewports: int * int * int * int  // (vx0, vy0, vx1, vy1)
       SpawnPoints: SpawnPoint array
       Name: string }
 
@@ -45,7 +45,7 @@ type LevelData =
 //   1. first_flag = true
 //   2. Loop until dest_offset >= 64000:
 //      a. If first_flag: prev = 0xFFFF (impossible match), clear flag
-//         Else: prev = current_byte (zero-extended to word)
+//         Else: prev = current_byte
 //      b. Read next source byte -> current_byte
 //      c. Write current_byte to dest[dest_offset]
 //      d. If current_byte == prev (RLE match):
@@ -123,7 +123,7 @@ let inline getPixel (pixels: byte array) (x: int) (y: int) =
     if x < 0 || x >= MapWidth || y < 0 || y >= MapHeight then VoidColor
     else pixels[y * MapWidth + x]
 
-/// Is this pixel a solid wall? Everything that is NOT black (0x00) and NOT water (0x27)
+/// Is this pixel a solid wall? Everything that is NOT black (0x00) and NOT water
 /// is treated as solid — ships and most projectiles cannot pass through.
 let inline isWall (pixel: byte) =
     pixel <> VoidColor && pixel <> WaterColor
@@ -140,7 +140,7 @@ let inline isVoid (pixel: byte) =
 let inline isPassable (pixel: byte) =
     pixel = VoidColor || pixel = WaterColor
 
-/// Is this pixel an indestructible wall? Dark gray range (0x5C..0x5F)
+/// Is this pixel an indestructible wall? Dark gray range
 /// These cannot be erased by ammo impacts.
 let inline isIndestructible (pixel: byte) =
     pixel >= IndestructibleMin && pixel <= IndestructibleMax
@@ -233,7 +233,7 @@ let inline setPixel (pixels: byte array) (x: int) (y: int) (value: byte) =
         pixels[y * MapWidth + x] <- value
 
 /// Erase terrain in a circle (paint black / VoidColor) around a point.
-/// Skips indestructible pixels (dark gray 0x5C..0x5F).
+/// Skips indestructible pixels (dark gray).
 /// Returns true if any pixels were actually erased.
 let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: float) : bool =
     let ix = int (round cx)
