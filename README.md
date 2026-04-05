@@ -13,6 +13,7 @@ Inspired heavily by the Finnish rocket game lineage:
 But mostly AUTS, because it had Shareware licence and excellent controls.
 So there is a level-reader for AUTS levels included.
 
+Separate MonoGame and WinForms branches are available.
 
 ## Features
 
