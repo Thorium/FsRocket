@@ -20,15 +20,16 @@ So there is a level-reader for AUTS levels included.
 - **21 weapons** — machinegun, homing missiles, mines, nukes, blackholes, sonicbooms, EMP, freezer, and more
 - **33 terrain maps** loaded from the original AUTS `.LEV` format (RLE-compressed VGA data) plus a no-terrain arena mode
 - **Destructible terrain** — projectiles carve out the map on impact
-- **VGA Mode 13h aesthetic** — faithful 256-color palette rendering via GDI+
+- **VGA Mode 13h aesthetic** — faithful 256-color palette rendering via MonoGame (hardware-accelerated)
+- **Cross-platform** — runs on Windows, macOS, and Linux via MonoGame DesktopGL
 - **Pure functional core** — game logic is a single `GameState -> GameState` tick function with immutable records
 - Gravity, thrust, water friction, knockback, shields, stun, and spawn invincibility
 
 ## Requirements
 
-- [.NET 10.0 SDK](https://dotnet.microsoft.com/download) (Windows)
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download) or later (Windows, macOS, or Linux)
 
-No third-party NuGet packages are required.
+Uses [MonoGame Framework (DesktopGL)](https://www.monogame.net/) for hardware-accelerated 2D rendering.
 
 ## Build & Run
 
@@ -62,8 +63,8 @@ Weapons.fs    — Weapon definitions, entity types, damage tables
 Types.fs      — Immutable game-state records (Player, Entity, Particle, GameState)
 Entities.fs   — Entity factories, collision detection, arena walls, spawning
 Game.fs       — Core game tick logic (pure function)
-Renderer.fs   — Split-screen WinForms/GDI+ renderer with VGA palette
-Program.fs    — Entry point, keyboard input, game loop
+Renderer.fs   — Split-screen MonoGame/SpriteBatch renderer with VGA palette
+Program.fs    — MonoGame entry point, keyboard input, game loop
 test.fsx      — Smoke tests
 *.LEV         — AUTS terrain maps
 ```
