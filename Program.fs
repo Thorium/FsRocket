@@ -148,7 +148,21 @@ type FsRocketGame() as this =
 
         if this.JustPressed Keys.F11 currKeyState then
             graphics.IsFullScreen <- not graphics.IsFullScreen
-            graphics.ApplyChanges()
+(*          // If you want native fulscreen instead:
+            if not graphics.IsFullScreen then
+                // Set native resolution before switching to fullscreen
+                let display = Microsoft.Xna.Framework.Graphics.GraphicsAdapter.DefaultAdapter.CurrentDisplayMode
+                graphics.PreferredBackBufferWidth <- display.Width
+                graphics.PreferredBackBufferHeight <- display.Height
+                graphics.HardwareModeSwitch <- false
+                graphics.IsFullScreen <- true
+            else
+                // Restore windowed resolution
+                graphics.PreferredBackBufferWidth <- 960
+                graphics.PreferredBackBufferHeight <- 600
+                graphics.IsFullScreen <- false
+*)
+                graphics.ApplyChanges()
 
         if this.JustPressed Keys.D1 currKeyState then humanCount <- 1; applyPlayerCount ()
         if this.JustPressed Keys.D2 currKeyState then humanCount <- 2; applyPlayerCount ()
