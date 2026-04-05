@@ -376,8 +376,10 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     let p = gs.Players[playerIdx]
     let sb = res.SpriteBatch
 
-    // Set scissor rectangle for viewport clipping
+    // Set scissor rectangle for viewport clipping and start batch
     device.ScissorRectangle <- Rectangle(vx, vy, vw, vh)
+    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
+             SamplerState.PointClamp, null, res.ScissorRasterizer)
 
     // Background
     drawRect sb res.Pixel vx vy vw gameH bgColor
@@ -725,11 +727,13 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
 
                 res.SpriteBatch.End()
 
-    // Resume SpriteBatch for minimap and HUD
+    // ─── Minimap (viewport scissor) ──────────────────────────────
+    // Each section gets its own SpriteBatch batch so that the scissor
+    // rectangle is correct when the Deferred batch is flushed.
+    device.ScissorRectangle <- Rectangle(vx, vy, vw, vh)
     sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
              SamplerState.PointClamp, null, res.ScissorRasterizer)
 
-    // ─── Minimap (top-right corner of each viewport) ──────────────
     let mmW = min 80 (vw / 5)
     let mmH = int (float mmW * ArenaHeight / ArenaWidth)
     let mmX = vx + vw - mmW - 4
@@ -798,8 +802,19 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     drawLine sb res.Pixel (cvx + cvw) (cvy + cvh) cvx (cvy + cvh) cvColor 1.0f
     drawLine sb res.Pixel cvx (cvy + cvh) cvx cvy cvColor 1.0f
 
-    // ─── HUD bar at bottom ─────────────────────────────────────────
+    // DEAD overlay (drawn with viewport scissor, before switching to HUD)
+    if not p.Alive then
+        let deadOverlay = Color(0, 0, 0, 0xA0)
+        drawRect sb res.Pixel vx vy vw gameH deadOverlay
+        drawText sb res.FontTexture "DEAD" (vx + vw/2 - 16) (vy + gameH/2 - 5) Color.Red 2
+
+    sb.End()
+
+    // ─── HUD bar at bottom (HUD scissor) ───────────────────────────
     device.ScissorRectangle <- Rectangle(vx, vy + gameH, vw, hudH)
+    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
+             SamplerState.PointClamp, null, res.ScissorRasterizer)
+
     drawRect sb res.Pixel vx (vy + gameH) vw hudH hudBgColor
 
     let hudY = vy + gameH + 2
@@ -831,13 +846,9 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     let kd = $"K:{p.KillCount} D:{p.DeathCount}"
     drawText sb res.FontTexture kd (barX + barW + 8) (hudY + 2) Color.White 1
 
-    // Status indicators
-    if not p.Alive then
-        let deadOverlay = Color(0, 0, 0, 0xA0)
-        drawRect sb res.Pixel vx vy vw gameH deadOverlay
-        drawText sb res.FontTexture "DEAD" (vx + vw/2 - 16) (vy + gameH/2 - 5) Color.Red 2
+    sb.End()
 
-    // Reset scissor
+    // Reset scissor for the caller's final End()
     device.ScissorRectangle <- Rectangle(0, 0, device.Viewport.Width, device.Viewport.Height)
 
 // ─── Draw viewport border ──────────────────────────────────────────────
@@ -865,11 +876,8 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
     for i in 0..gs.NumPlayers-1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
-            // Begin SpriteBatch with scissor test enabled
-            res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-                                  SamplerState.PointClamp, null, res.ScissorRasterizer)
+            // drawPlayerView manages its own SpriteBatch batches internally
             drawPlayerView res device gs i vx vy vw vh
-            res.SpriteBatch.End()
 
             // Draw border
             res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
