@@ -1279,11 +1279,15 @@ let gameTick (gs: GameState) : GameState =
 
     // Respawn dead players after 90 ticks (~2.5 seconds)
     let players =
+        // Gather spawn indices of alive players to exclude
+        let aliveSpawnIndices = players |> List.choose (fun p -> if p.Alive then Some p.SpawnIndex else None)
         players |> List.mapi (fun i p ->
             if i < gs.NumPlayers && not p.Alive then
                 let a = p.AnimAngle + 1.0
                 if a > 90.0 then
-                    spawnPlayer gs.Rng gs.Level p
+                    let exclude = aliveSpawnIndices |> List.tryHead |> Option.defaultValue -1
+                    let spawned, _ = spawnPlayer gs.Rng gs.Level exclude p
+                    spawned
                 else
                     { p with AnimAngle = a }
             else p)
@@ -1308,13 +1312,15 @@ let initRound (gs: GameState) : GameState =
         else gs
 
     let cpuStart = gs.NumPlayers - gs.CpuCount  // First CPU player index
-    let players =
-        gs.Players |> List.mapi (fun i p ->
+    let players, _ =
+        gs.Players |> List.indexed |> List.fold (fun (acc, lastIdx) (i, p) ->
             if i < gs.NumPlayers then
-                let p = spawnPlayer gs.Rng gs.Level p
-                { p with WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
-                         ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = i >= cpuStart }
-            else p)
+                let spawned, idx = spawnPlayer gs.Rng gs.Level lastIdx p
+                let spawned = { spawned with WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
+                                             ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = i >= cpuStart }
+                (acc @ [spawned], idx)
+            else (acc @ [p], lastIdx)
+        ) ([], -1)
     { gs with
         Players = players
         Entities = []
