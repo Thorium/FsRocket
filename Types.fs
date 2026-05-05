@@ -49,7 +49,8 @@ type Player =
       WallDmgCooldown: int      // Cooldown after wall damage (does NOT protect from bullets)
       KillCount: int            // Kills (for scoreboard)
       DeathCount: int           // Deaths (for scoreboard)
-      IsCpu: bool }             // Is this a CPU-controlled player
+      IsCpu: bool               // Is this a CPU-controlled player
+      SpawnIndex: int }          // Last spawn point index used (-1 = none)
 
 // ─── Entity Record ────────────────────────────────────────────────────
 

@@ -19,6 +19,7 @@ let PageSize = MapWidth * 200  // 64000 bytes per VGA page
 /// Everything else is solid wall.
 /// Dark gray pixels are indestructible walls that cannot be erased by ammo.
 let WaterColor = 0x27uy          // Water surface — penetrable, friction applies
+let BaseColor = 0x28uy           // Base/dock — penetrable, marks start positions
 let IndestructibleMin = 0x5Cuy   // Indestructible wall range low (dark gray)
 let IndestructibleMax = 0x5Fuy   // Indestructible wall range high
 let VoidColor = 0x00uy           // Empty/sky — the only freely flyable space
@@ -123,22 +124,26 @@ let inline getPixel (pixels: byte array) (x: int) (y: int) =
     if x < 0 || x >= MapWidth || y < 0 || y >= MapHeight then VoidColor
     else pixels[y * MapWidth + x]
 
-/// Is this pixel a solid wall? Everything that is NOT black (0x00) and NOT water
-/// is treated as solid — ships and most projectiles cannot pass through.
+/// Is this pixel a solid wall? Everything that is NOT black (0x00), NOT water,
+/// and NOT base is treated as solid — ships and most projectiles cannot pass through.
 let inline isWall (pixel: byte) =
-    pixel <> VoidColor && pixel <> WaterColor
+    pixel <> VoidColor && pixel <> WaterColor && pixel <> BaseColor
 
 /// Is this pixel water/ground? 
 let inline isWater (pixel: byte) =
     pixel = WaterColor
 
+/// Is this pixel a base/dock zone?
+let inline isBase (pixel: byte) =
+    pixel = BaseColor
+
 /// Is this pixel void/empty/flyable? (0x00)
 let inline isVoid (pixel: byte) =
     pixel = VoidColor
 
-/// Is this pixel passable (flyable)? Black or water.
+/// Is this pixel passable (flyable)? Black, water, or base.
 let inline isPassable (pixel: byte) =
-    pixel = VoidColor || pixel = WaterColor
+    pixel = VoidColor || pixel = WaterColor || pixel = BaseColor
 
 /// Is this pixel an indestructible wall? Dark gray range
 /// These cannot be erased by ammo impacts.
@@ -148,9 +153,9 @@ let inline isIndestructible (pixel: byte) =
 // ─── Spawn Point Scanning  ─────
 //
 // Scan rows 2..398, cols 0..319:
-//   If pixel(col, row+1) == 0x27 AND pixel(col, row) == 0x00:
-//     Found spawn edge. Measure width rightward while same condition holds.
-//     Record {x=col, y=row, width=measured-1}. Skip col past the platform.
+//   If pixel(col, row) == 0x28 (base) AND pixel(col, row-1) == 0x00 (void above):
+//     Found base spawn. Measure width rightward while same condition holds.
+//     Record {x=col, y=row-1, width=measured-1}. Skip col past the base.
 
 let findSpawnPoints (pixels: byte array) : SpawnPoint array =
     let spawns = ResizeArray<SpawnPoint>()
@@ -160,25 +165,25 @@ let findSpawnPoints (pixels: byte array) : SpawnPoint array =
         let mutable col = 0
 
         while col < 320 do
-            let below = getPixel pixels col (row + 1)
+            let current = getPixel pixels col row
 
-            if below = WaterColor then
-                let above = getPixel pixels col row
+            if current = BaseColor then
+                let above = getPixel pixels col (row - 1)
 
                 if above = VoidColor then
-                    // Found spawn edge — measure width rightward
+                    // Found base spawn — measure width rightward
                     let mutable width = 0
 
                     let mutable measuring = true
                     while measuring do
                         width <- width + 1
-                        let rightAbove = getPixel pixels (col + width) row
-                        let rightBelow = getPixel pixels (col + width) (row + 1)
-                        if rightAbove <> VoidColor || rightBelow <> WaterColor then
+                        let rightCur = getPixel pixels (col + width) row
+                        let rightAbove = getPixel pixels (col + width) (row - 1)
+                        if rightCur <> BaseColor || rightAbove <> VoidColor then
                             measuring <- false
 
-                    spawns.Add { X = col; Y = row; Width = width - 1 }
-                    col <- col + width  // Skip past this platform
+                    spawns.Add { X = col; Y = row - 1; Width = width - 1 }
+                    col <- col + width  // Skip past this base
                 else
                     col <- col + 1
             else
@@ -215,15 +220,27 @@ let hitsTerrainWall (pixels: byte array) (x: float) (y: float) : bool =
 let isOnWater (pixels: byte array) (x: float) (y: float) : bool =
     isWater (terrainAt pixels x y)
 
-/// Pick a random spawn point from the level's spawn list
-let randomSpawn (spawns: SpawnPoint array) (rng: Random) : int * int =
+/// Is position on a base? (for spawn marking)
+let isOnBase (pixels: byte array) (x: float) (y: float) : bool =
+    isBase (terrainAt pixels x y)
+
+/// Pick a random spawn point from the level's spawn list, avoiding a previously
+/// used index so two players don't spawn next to each other.
+let randomSpawn (spawns: SpawnPoint array) (rng: Random) (excludeIndex: int) : int * int * int =
     if spawns.Length = 0 then
         // Fallback: random position in arena
-        rng.Next MapWidth, rng.Next MapHeight
+        let x = rng.Next MapWidth
+        let y = rng.Next MapHeight
+        x, y, -1
+    elif spawns.Length = 1 then
+        let sp = spawns[0]
+        sp.X + sp.Width / 2, sp.Y, 0
     else
-        let sp = spawns[rng.Next spawns.Length]
-        // Place at center of platform, at the row above the surface
-        sp.X + sp.Width / 2, sp.Y
+        let mutable idx = rng.Next spawns.Length
+        while idx = excludeIndex do
+            idx <- rng.Next spawns.Length
+        let sp = spawns[idx]
+        sp.X + sp.Width / 2, sp.Y, idx
 
 // ─── Terrain Modification (ammo erasing walls) ────────────────────────
 
@@ -248,7 +265,7 @@ let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: flo
                 let py = iy + dy
                 if px >= 0 && px < MapWidth && py >= 0 && py < MapHeight then
                     let existing = pixels[py * MapWidth + px]
-                    if existing <> VoidColor && existing <> WaterColor && not (isIndestructible existing) then
+                    if existing <> VoidColor && existing <> WaterColor && existing <> BaseColor && not (isIndestructible existing) then
                         pixels[py * MapWidth + px] <- VoidColor
                         erased <- true
     erased
