@@ -7,8 +7,10 @@
 ///   Player 2 (GREEN):  W/A/D/S/Tab (Thrust/Left/Right/Down/Fire)
 ///   Player 3 (RED):    I/J/L/K/B (Thrust/Left/Right/Down/Fire)
 ///
-///   1-4: Set player count
-///   F1-F4: Cycle weapon for P1-P4
+///   1-4: Set player count (menu only)
+///   Weapon switch (in-game): P1 = 9, P2 = 1, P3 = 6
+///     By default a weapon can only be changed while parked on a base.
+///   F9: Toggle "change weapons only on bases"
 ///   F5/F6: Prev/next level
 ///   Space: Start round
 ///   Escape: Quit
@@ -27,11 +29,15 @@ open FsRocket.Renderer
 
 // ─── Level file paths ──────────────────────────────────────────────────
 
+/// Directory containing the running executable — where the .LEV files live.
+let private exeDir =
+    match IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) with
+    | null | "" -> "."
+    | dir -> dir
+
+let private levelPath (name: string) = IO.Path.Combine(exeDir, name + ".LEV")
+
 let private discoverLevels () : string array =
-    let exeDir =
-        let loc = System.Reflection.Assembly.GetExecutingAssembly().Location
-        let dir = IO.Path.GetDirectoryName(loc)
-        if String.IsNullOrEmpty dir then "." else dir
     IO.Directory.GetFiles(exeDir, "*.LEV")
     |> Array.map (fun f -> IO.Path.GetFileNameWithoutExtension(f).ToUpperInvariant())
     |> Array.distinct
@@ -40,30 +46,33 @@ let private discoverLevels () : string array =
 let levelFiles = discoverLevels ()
 
 let tryLoadLevel (gs: GameState) (name: string) : GameState option =
-    let exeDir =
-        let loc = System.Reflection.Assembly.GetExecutingAssembly().Location
-        let dir = IO.Path.GetDirectoryName(loc)
-        if String.IsNullOrEmpty dir then "." else dir
-    let path = IO.Path.Combine(exeDir, name + ".LEV")
+    let path = levelPath name
     if IO.File.Exists path then
-        let level = loadLevel path
-        Some { gs with Level = Some level }
+        Some { gs with Level = Some (loadLevel path); LevelFilePath = path }
     else
         None
 
 // ─── Special weapon cycling helper ────────────────────────────────────
 
 let cycleWeapon (gs: GameState) (playerIdx: int) : GameState =
-    if playerIdx < gs.NumPlayers then
-        let p = gs.Players[playerIdx]
-        let mutable wt = (int p.SpecialWeapon + 1) % weapons.Length
-        while not weapons[wt].Enabled || wt = int WeaponType.Cannon do
-            wt <- (wt + 1) % weapons.Length
-        let p = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
-        let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
-        { gs with Players = players }
+    if playerIdx >= gs.NumPlayers then gs
     else
-        gs
+        let p = gs.Players[playerIdx]
+        // Default rule: during a live round the special weapon can only be changed
+        // while the ship is parked on a base. Toggle off (F9) to allow it anywhere.
+        let allowed = not gs.WeaponSwitchOnlyOnBase || not gs.RoundActive || p.OnBase
+        if not allowed then gs
+        else
+            let mutable wt = (int p.SpecialWeapon + 1) % weapons.Length
+            // Skip disabled weapons and Cannon (the always-on main gun). Guard the
+            // scan so a weapon table with no enabled alternative can't hang the loop.
+            let mutable guard = 0
+            while (not weapons[wt].Enabled || wt = int WeaponType.Cannon) && guard < weapons.Length do
+                wt <- (wt + 1) % weapons.Length
+                guard <- guard + 1
+            let p = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
+            let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
+            { gs with Players = players }
 
 // ─── Game Class ────────────────────────────────────────────────────────
 
@@ -88,17 +97,13 @@ type FsRocketGame() as this =
     let switchLevel (delta: int) =
         let total = levelFiles.Length + 1
         levelIdx <- ((levelIdx + delta) % total + total) % total
-        if levelIdx < levelFiles.Length then
-            let exeDir =
-                let loc = System.Reflection.Assembly.GetExecutingAssembly().Location
-                let dir = System.IO.Path.GetDirectoryName(loc)
-                if String.IsNullOrEmpty dir then "." else dir
-            let path = System.IO.Path.Combine(exeDir, levelFiles[levelIdx] + ".LEV")
-            match tryLoadLevel gs levelFiles[levelIdx] with
-            | Some newGs -> gs <- { newGs with RoundActive = false; LevelFilePath = path }
-            | None -> gs <- { gs with RoundActive = false; LevelFilePath = "" }
-        else
-            gs <- { gs with Level = None; RoundActive = false; LevelFilePath = "" }
+        gs <-
+            if levelIdx < levelFiles.Length then
+                match tryLoadLevel gs levelFiles[levelIdx] with
+                | Some newGs -> { newGs with RoundActive = false }
+                | None -> { gs with RoundActive = false; LevelFilePath = "" }
+            else
+                { gs with Level = None; RoundActive = false; LevelFilePath = "" }
 
     do
         // Window settings
@@ -114,14 +119,9 @@ type FsRocketGame() as this =
 
     override this.Initialize() =
         // Load default level
-        let exeDir =
-            let loc = System.Reflection.Assembly.GetExecutingAssembly().Location
-            let dir = System.IO.Path.GetDirectoryName(loc)
-            if String.IsNullOrEmpty dir then "." else dir
         if levelFiles.Length > 0 then
-            let path = System.IO.Path.Combine(exeDir, levelFiles[0] + ".LEV")
             match tryLoadLevel gs levelFiles[0] with
-            | Some newGs -> gs <- { newGs with LevelFilePath = path }
+            | Some newGs -> gs <- newGs
             | None -> ()
         base.Initialize()
 
@@ -162,16 +162,24 @@ type FsRocketGame() as this =
                 graphics.PreferredBackBufferHeight <- 600
                 graphics.IsFullScreen <- false
 *)
-                graphics.ApplyChanges()
+            graphics.ApplyChanges()
 
-        if this.JustPressed Keys.D1 currKeyState then humanCount <- 1; applyPlayerCount ()
-        if this.JustPressed Keys.D2 currKeyState then humanCount <- 2; applyPlayerCount ()
-        if this.JustPressed Keys.D3 currKeyState then humanCount <- 3; applyPlayerCount ()
-        if this.JustPressed Keys.D4 currKeyState then humanCount <- 4; applyPlayerCount ()
-        if this.JustPressed Keys.F1 currKeyState then gs <- cycleWeapon gs 0
-        if this.JustPressed Keys.F2 currKeyState then gs <- cycleWeapon gs 1
-        if this.JustPressed Keys.F3 currKeyState then gs <- cycleWeapon gs 2
-        if this.JustPressed Keys.F4 currKeyState then gs <- cycleWeapon gs 3
+        // Player count is selected from the menu only (these number keys double as
+        // weapon-switch keys during a live round).
+        if not gs.RoundActive then
+            if this.JustPressed Keys.D1 currKeyState then humanCount <- 1; applyPlayerCount ()
+            if this.JustPressed Keys.D2 currKeyState then humanCount <- 2; applyPlayerCount ()
+            if this.JustPressed Keys.D3 currKeyState then humanCount <- 3; applyPlayerCount ()
+            if this.JustPressed Keys.D4 currKeyState then humanCount <- 4; applyPlayerCount ()
+        else
+            // Weapon switch on a number key close to each player's controls:
+            //   P1 (right-hand: arrows/numpad) = 9, P2 (left: WASD) = 1, P3 (mid: IJKL) = 6
+            if this.JustPressed Keys.D9 currKeyState then gs <- cycleWeapon gs 0
+            if this.JustPressed Keys.D1 currKeyState then gs <- cycleWeapon gs 1
+            if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 2
+        // F9 toggles the "change weapons only on bases" rule
+        if this.JustPressed Keys.F9 currKeyState then
+            gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
         if this.JustPressed Keys.F5 currKeyState then switchLevel -1
         if this.JustPressed Keys.F6 currKeyState then switchLevel 1
         if this.JustPressed Keys.F7 currKeyState then

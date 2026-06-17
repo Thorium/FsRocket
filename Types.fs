@@ -50,7 +50,8 @@ type Player =
       KillCount: int            // Kills (for scoreboard)
       DeathCount: int           // Deaths (for scoreboard)
       IsCpu: bool               // Is this a CPU-controlled player
-      SpawnIndex: int }          // Last spawn point index used (-1 = none)
+      SpawnIndex: int           // Last spawn point index used (-1 = none)
+      OnBase: bool }             // Resting on a base/landing pad this tick (heals, allows weapon switch)
 
 // ─── Entity Record ────────────────────────────────────────────────────
 
@@ -94,4 +95,5 @@ type GameState =
       RoundActive: bool
       Level: Terrain.LevelData option
       LevelFilePath: string       // Full path to current .LEV file (empty = no terrain)
-      TerrainDirty: bool }
+      TerrainDirty: bool
+      WeaponSwitchOnlyOnBase: bool }  // Default: special weapon can only be changed while parked on a base

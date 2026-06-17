@@ -39,6 +39,7 @@ let playerDarkColors = [|
 
 let bgColor        = Color(0x00, 0x00, 0x00)
 let wallColor      = Color(0x40, 0x40, 0x50)
+let basePadColor   = Color(0x30, 0xC0, 0x60)   // Landing pad / base — distinct green bar
 let gridColor      = Color(0x18, 0x18, 0x24)
 let bulletColor    = Color(0xFF, 0xFF, 0x80)
 let mineColorVal   = Color(0xFF, 0x60, 0x20)
@@ -331,13 +332,17 @@ let measureText (text: string) (scale: int) =
 let buildTerrainTexture (device: GraphicsDevice) (level: LevelData) : Texture2D =
     let tex = new Texture2D(device, MapWidth, MapHeight)
     let data = Array.init (MapWidth * MapHeight) (fun i ->
-        let pixel = int level.Pixels[i]
-        let argb = vgaPalette[pixel]
-        let a = (argb >>> 24) &&& 0xFF
-        let r = (argb >>> 16) &&& 0xFF
-        let g = (argb >>> 8) &&& 0xFF
-        let b = argb &&& 0xFF
-        Color(r, g, b, a)
+        let pixel = level.Pixels[i]
+        // Bases (landing pads) get a fixed, recognizable colour instead of the raw
+        // palette shades so players can spot where to land, heal and swap weapons.
+        if isBase pixel then basePadColor
+        else
+            let argb = vgaPalette[int pixel]
+            let a = (argb >>> 24) &&& 0xFF
+            let r = (argb >>> 16) &&& 0xFF
+            let g = (argb >>> 8) &&& 0xFF
+            let b = argb &&& 0xFF
+            Color(r, g, b, a)
     )
     tex.SetData(data)
     tex
@@ -842,6 +847,10 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     let info = $"CANNON | {specialName} [{p.Ammo}]"
     drawText sb res.FontTexture info (vx + 4) (hudY + 14) Color.White 1
 
+    // "BASE" indicator while landed — signals healing + weapon switching available
+    if p.OnBase && p.Alive then
+        drawText sb res.FontTexture "BASE" (vx + vw - 28) (hudY + 14) Color.LimeGreen 1
+
     // Kill/Death count
     let kd = $"K:{p.KillCount} D:{p.DeathCount}"
     drawText sb res.FontTexture kd (barX + barW + 8) (hudY + 2) Color.White 1
@@ -865,9 +874,11 @@ let drawBorder (sb: SpriteBatch) (pixel: Texture2D) (vx: int) (vy: int) (vw: int
 let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (windowW: int) (windowH: int) =
     device.Clear(Color.Black)
 
-    // Update BasicEffect projection for current window size
+    // Update BasicEffect projection for current window size. Guard against a
+    // zero-size window (e.g. minimized) which would make the ortho matrix
+    // degenerate (division by zero -> infinities).
     res.BasicEffect.Projection <-
-        Matrix.CreateOrthographicOffCenter(0.0f, float32 windowW, float32 windowH, 0.0f, 0.0f, 1.0f)
+        Matrix.CreateOrthographicOffCenter(0.0f, float32 (max 1 windowW), float32 (max 1 windowH), 0.0f, 0.0f, 1.0f)
     res.BasicEffect.View <- Matrix.Identity
     res.BasicEffect.World <- Matrix.Identity
 
@@ -903,17 +914,22 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
         drawText res.SpriteBatch res.FontTexture $"Level: {levelName} | Players: {gs.NumPlayers}{cpuText}" cx y (Color(0xC0, 0xC0, 0xC0)) 2
         y <- y + 24
 
-        drawText res.SpriteBatch res.FontTexture "Press SPACE to start | F1-F4: weapon | 1-4: players | ESC: quit" cx y (Color(0xC0, 0xC0, 0xC0)) 1
+        drawText res.SpriteBatch res.FontTexture "Press SPACE to start | 1-4: players | ESC: quit" cx y (Color(0xC0, 0xC0, 0xC0)) 1
         y <- y + 12
         drawText res.SpriteBatch res.FontTexture "F5: prev level | F6: next level | F7/F8: CPU players | F11: Full-screen" cx y (Color(0xC0, 0xC0, 0xC0)) 1
+        y <- y + 12
+        let weaponRule =
+            if gs.WeaponSwitchOnlyOnBase then "Weapon switch (P1=9 P2=1 P3=6): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=9 P2=1 P3=6): anytime   [F9 to require a base]"
+        drawText res.SpriteBatch res.FontTexture weaponRule cx y (Color(0x90, 0xC0, 0xFF)) 1
         y <- y + 20
 
         drawText res.SpriteBatch res.FontTexture "Controls:" cx y (Color(0xFF, 0xFF, 0x80)) 1
         y <- y + 12
-        drawText res.SpriteBatch res.FontTexture "P1 BLUE:   Arrows/NumPad = Thrust/Turn  RShift = Fire  Down = Special" cx y Color.White 1
+        drawText res.SpriteBatch res.FontTexture "P1 BLUE:   Arrows/NumPad = Thrust/Turn  RShift = Fire  Down = Special  9 = Weapon" cx y Color.White 1
         y <- y + 10
-        drawText res.SpriteBatch res.FontTexture "P2 GREEN:  W/A/D = Thrust/Turn           Tab = Fire     S = Special" cx y Color.White 1
+        drawText res.SpriteBatch res.FontTexture "P2 GREEN:  W/A/D = Thrust/Turn           Tab = Fire     S = Special  1 = Weapon" cx y Color.White 1
         y <- y + 10
-        drawText res.SpriteBatch res.FontTexture "P3 RED:    I/J/L = Thrust/Turn             B = Fire     K = Special" cx y Color.White 1
+        drawText res.SpriteBatch res.FontTexture "P3 RED:    I/J/L = Thrust/Turn             B = Fire     K = Special  6 = Weapon" cx y Color.White 1
 
         res.SpriteBatch.End()

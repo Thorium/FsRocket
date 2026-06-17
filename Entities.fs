@@ -27,7 +27,8 @@ let createPlayer (index: int) : Player =
       CloakAngle = 0.0; StunTimer = 0; Alive = true
       AnimAngle = 0.0; BlackholeCounter = 1
       InvTimer = SpawnInvincibilityTicks; WallDmgCooldown = 0
-      KillCount = 0; DeathCount = 0; IsCpu = false; SpawnIndex = -1 }
+      KillCount = 0; DeathCount = 0; IsCpu = false; SpawnIndex = -1
+      OnBase = false }
 
 let defaultEntity : Entity =
     { X = 0.0; Y = 0.0; Timer = 0; SubType = 0
@@ -50,21 +51,15 @@ let createGameState (numPlayers: int) : GameState =
       RoundActive = false
       Level = None
       LevelFilePath = ""
-      TerrainDirty = false }
+      TerrainDirty = false
+      WeaponSwitchOnlyOnBase = true }
 
 // ─── Spawn a player at random position ─────────────────────────────────
 
-let spawnPlayer (rng: Random) (level: LevelData option) (excludeSpawnIdx: int) (p: Player) : Player * int =
-    let posX, posY, spawnIdx =
-        match level with
-        | Some lv when lv.SpawnPoints.Length > 0 ->
-            let sx, sy, idx = randomSpawn lv.SpawnPoints rng excludeSpawnIdx
-            float sx * PositionScale, float sy * PositionScale, idx
-        | _ ->
-            float (rng.Next(int ArenaWidth)) * PositionScale,
-            float (rng.Next(int ArenaHeight)) * PositionScale, -1
+/// Reset a player to a freshly-spawned state at a base pixel position / index.
+let private placeAtSpawn (sx: int) (sy: int) (spawnIdx: int) (p: Player) : Player * int =
     { p with
-        PosX = posX; PosY = posY
+        PosX = float sx * PositionScale; PosY = float sy * PositionScale
         VelX = 0.0; VelY = 0.0
         Angle = SpawnDirection
         Health = FullHealth
@@ -76,7 +71,22 @@ let spawnPlayer (rng: Random) (level: LevelData option) (excludeSpawnIdx: int) (
         ReloadTimer = 0
         SpecialReloadTimer = 0
         AnimAngle = 0.0
-        SpawnIndex = spawnIdx }, spawnIdx
+        SpawnIndex = spawnIdx
+        OnBase = false }, spawnIdx
+
+/// Choose a spawn pixel, using `chooseBase` when the level has bases and falling
+/// back to a random arena position otherwise.
+let private pickSpawnPos (rng: Random) (level: LevelData option)
+                         (chooseBase: SpawnPoint array -> int * int * int) : int * int * int =
+    match level with
+    | Some lv when lv.SpawnPoints.Length > 0 -> chooseBase lv.SpawnPoints
+    | _ -> rng.Next(int ArenaWidth), rng.Next(int ArenaHeight), -1
+
+/// Spawn a player onto a base, avoiding every base index already occupied by
+/// another live player so two ships never share a base.
+let spawnPlayerExcluding (rng: Random) (level: LevelData option) (occupied: int list) (p: Player) : Player * int =
+    let sx, sy, idx = pickSpawnPos rng level (fun sps -> randomSpawnExcluding sps rng occupied)
+    placeAtSpawn sx sy idx p
 
 // ─── Spawn a bullet/projectile — returns new entity to add ─────────────
 
