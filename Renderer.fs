@@ -40,6 +40,7 @@ let playerDarkColors = [|
 
 let bgColor = Color.FromArgb(0x00, 0x00, 0x00)
 let wallColor = Color.FromArgb(0x40, 0x40, 0x50)
+let basePadColor = Color.FromArgb(0x30, 0xC0, 0x60)   // Landing pad / base — distinct green bar
 let gridColor = Color.FromArgb(0x18, 0x18, 0x24)
 let bulletColor = Color.FromArgb(0xFF, 0xFF, 0x80)
 let mineColor = Color.FromArgb(0xFF, 0x60, 0x20)
@@ -120,10 +121,13 @@ let buildTerrainBitmap (level: LevelData) : Bitmap =
     let stride = bmpData.Stride
     let strideInts = stride / 4  // stride in int32 units
     let buf = Array.zeroCreate<int> (strideInts * MapHeight)
+    let basePadArgb = basePadColor.ToArgb()
     for y in 0 .. MapHeight - 1 do
         for x in 0 .. MapWidth - 1 do
-            let pixel = int level.Pixels[y * MapWidth + x]
-            buf[y * strideInts + x] <- vgaPalette[pixel]
+            let pixel = level.Pixels[y * MapWidth + x]
+            // Bases (landing pads) get a fixed, recognizable colour instead of the raw
+            // palette shades so players can spot where to land, heal and swap weapons.
+            buf[y * strideInts + x] <- if isBase pixel then basePadArgb else vgaPalette[int pixel]
     Marshal.Copy(buf, 0, bmpData.Scan0, buf.Length)
     bmp.UnlockBits bmpData
     bmp
@@ -586,6 +590,11 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
     let info = $"CANNON  |  {specialName} [{p.Ammo}]"
     g.DrawString(info, cachedHudFont, cachedWhiteBrush, float32 (vx + 4), float32 (hudY + 14))
 
+    // "BASE" indicator while landed — signals healing + weapon switching available
+    if p.OnBase && p.Alive then
+        use baseBrush = new SolidBrush(Color.LimeGreen)
+        g.DrawString("BASE", cachedHudFont, baseBrush, float32 (vx + vw - 36), float32 (hudY + 14))
+
     // Kill/Death count
     let kd = $"K:{p.KillCount} D:{p.DeathCount}"
     g.DrawString(kd, cachedHudFont, cachedWhiteBrush, float32 (vx + barX + barW + 8), float32 (hudY + 2))
@@ -633,6 +642,7 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         use white = new SolidBrush(Color.White)
         use gray = new SolidBrush(Color.FromArgb(0xC0, 0xC0, 0xC0))
         use yellow = new SolidBrush(Color.FromArgb(0xFF, 0xFF, 0x80))
+        use cyan = new SolidBrush(Color.FromArgb(0x90, 0xC0, 0xFF))
         let cx = float32 (windowW / 2 - 200)
         let mutable y = float32 (windowH / 2 - 80)
         g.DrawString("FsRocket Physics", titleFont, white, cx, y)
@@ -641,14 +651,20 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         let cpuText = if gs.CpuCount > 0 then $"  |  CPU: {gs.CpuCount}" else ""
         g.DrawString($"Level: {levelName}  |  Players: {gs.NumPlayers}{cpuText}", subFont, gray, cx, y)
         y <- y + 24.0f
-        g.DrawString("Press SPACE to start  |  F1-F4: weapon  |  1-4: players  |  ESC: quit", subFont, gray, cx, y)
+        g.DrawString("Press SPACE to start  |  1-4: players  |  ESC: quit", subFont, gray, cx, y)
         y <- y + 16.0f
         g.DrawString("F5: prev level  |  F6: next level  |  F7/F8: CPU players  |  F11: Full-screen", subFont, gray, cx, y)
+        y <- y + 16.0f
+        let weaponRule =
+            if gs.WeaponSwitchOnlyOnBase
+            then "Weapon switch (P1=9 P2=1 P3=6): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=9 P2=1 P3=6): anytime   [F9 to require a base]"
+        g.DrawString(weaponRule, subFont, cyan, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
         y <- y + 18.0f
-        g.DrawString("P1 RED:    Arrows/NumPad = Thrust/Turn    RShift = Fire    Down = Brake", keyFont, white, cx, y)
+        g.DrawString("P1 RED:    Arrows/NumPad = Thrust/Turn    RShift = Fire    Down = Special   9 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
-        g.DrawString("P2 GREEN:  W/A/D = Thrust/Turn            Tab = Fire       S = Brake", keyFont, white, cx, y)
+        g.DrawString("P2 GREEN:  W/A/D = Thrust/Turn            Tab = Fire       S = Special   1 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
-        g.DrawString("P3 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Brake", keyFont, white, cx, y)
+        g.DrawString("P3 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Special   6 = Weapon", keyFont, white, cx, y)

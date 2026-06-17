@@ -19,13 +19,14 @@ let PageSize = MapWidth * 200  // 64000 bytes per VGA page
 /// Everything else is solid wall.
 /// Dark gray pixels are indestructible walls that cannot be erased by ammo.
 let WaterColor = 0x27uy          // Water surface — penetrable, friction applies
-let BaseColor = 0x28uy           // Base/dock — penetrable, marks start positions
-let IndestructibleMin = 0x5Cuy   // Indestructible wall range low (dark gray)
-let IndestructibleMax = 0x5Fuy   // Indestructible wall range high
+// Base / landing pad colour range — shaded grey bars (0x5C..0x5F), drawn as small
+// horizontal rectangles in the AUTS maps. Ships land here without taking collision
+// damage, recharge energy, and may switch weapons. Bases are also indestructible:
+// ammo cannot erase them. (Earlier code mislabelled this range as "indestructible
+// walls" and used 0x28 for bases — but real AUTS maps colour bases 0x5C..0x5F.)
+let BaseColorMin = 0x5Cuy        // Base/landing pad range low
+let BaseColorMax = 0x5Fuy        // Base/landing pad range high
 let VoidColor = 0x00uy           // Empty/sky — the only freely flyable space
-// Legacy aliases kept for reference
-let WallColorMin = IndestructibleMin
-let WallColorMax = IndestructibleMax
 
 // ─── Spawn Point ───────────────────────────────────────────────────────
 [<Struct>]
@@ -127,15 +128,15 @@ let inline getPixel (pixels: byte array) (x: int) (y: int) =
 /// Is this pixel a solid wall? Everything that is NOT black (0x00), NOT water,
 /// and NOT base is treated as solid — ships and most projectiles cannot pass through.
 let inline isWall (pixel: byte) =
-    pixel <> VoidColor && pixel <> WaterColor && pixel <> BaseColor
+    pixel <> VoidColor && pixel <> WaterColor && not (pixel >= BaseColorMin && pixel <= BaseColorMax)
 
 /// Is this pixel water/ground? 
 let inline isWater (pixel: byte) =
     pixel = WaterColor
 
-/// Is this pixel a base/dock zone?
+/// Is this pixel a base/landing pad? (shaded grey bar range)
 let inline isBase (pixel: byte) =
-    pixel = BaseColor
+    pixel >= BaseColorMin && pixel <= BaseColorMax
 
 /// Is this pixel void/empty/flyable? (0x00)
 let inline isVoid (pixel: byte) =
@@ -143,12 +144,12 @@ let inline isVoid (pixel: byte) =
 
 /// Is this pixel passable (flyable)? Black, water, or base.
 let inline isPassable (pixel: byte) =
-    pixel = VoidColor || pixel = WaterColor || pixel = BaseColor
+    pixel = VoidColor || pixel = WaterColor || isBase pixel
 
-/// Is this pixel an indestructible wall? Dark gray range
-/// These cannot be erased by ammo impacts.
+/// Is this pixel indestructible (cannot be erased by ammo)? Bases are the only
+/// indestructible pixels — the shaded grey landing-pad bars.
 let inline isIndestructible (pixel: byte) =
-    pixel >= IndestructibleMin && pixel <= IndestructibleMax
+    isBase pixel
 
 // ─── Spawn Point Scanning  ─────
 //
@@ -167,7 +168,7 @@ let findSpawnPoints (pixels: byte array) : SpawnPoint array =
         while col < 320 do
             let current = getPixel pixels col row
 
-            if current = BaseColor then
+            if isBase current then
                 let above = getPixel pixels col (row - 1)
 
                 if above = VoidColor then
@@ -179,7 +180,7 @@ let findSpawnPoints (pixels: byte array) : SpawnPoint array =
                         width <- width + 1
                         let rightCur = getPixel pixels (col + width) row
                         let rightAbove = getPixel pixels (col + width) (row - 1)
-                        if rightCur <> BaseColor || rightAbove <> VoidColor then
+                        if not (isBase rightCur) || rightAbove <> VoidColor then
                             measuring <- false
 
                     spawns.Add { X = col; Y = row - 1; Width = width - 1 }
@@ -191,7 +192,29 @@ let findSpawnPoints (pixels: byte array) : SpawnPoint array =
 
         row <- row + 1
 
-    spawns.ToArray()
+    // Merge spawn points belonging to the same pad. A single base bar is drawn
+    // with shaded/beveled rows, so the scan reports the wide top row plus a few
+    // tiny stray points along the bevel. Collapse points that overlap in x
+    // (within a small margin) and sit within a few rows into one base, so two
+    // ships are never told to spawn on what is really the same pad.
+    let xMargin = 6
+    let yMargin = 6
+    let merged = ResizeArray<SpawnPoint>()
+    for sp in spawns |> Seq.sortBy (fun s -> s.Y, s.X) do
+        let mutable hit = -1
+        for i in 0 .. merged.Count - 1 do
+            let m = merged[i]
+            let overlapX = sp.X <= m.X + m.Width + xMargin && m.X <= sp.X + sp.Width + xMargin
+            if hit < 0 && overlapX && abs (sp.Y - m.Y) <= yMargin then hit <- i
+        if hit < 0 then
+            merged.Add sp
+        else
+            let m = merged[hit]
+            let x0 = min m.X sp.X
+            let x1 = max (m.X + m.Width) (sp.X + sp.Width)
+            merged[hit] <- { X = x0; Y = min m.Y sp.Y; Width = x1 - x0 }
+
+    merged.ToArray()
 
 // ─── Load a .LEV File ──────────────────────────────────────────────────
 
@@ -224,21 +247,18 @@ let isOnWater (pixels: byte array) (x: float) (y: float) : bool =
 let isOnBase (pixels: byte array) (x: float) (y: float) : bool =
     isBase (terrainAt pixels x y)
 
-/// Pick a random spawn point from the level's spawn list, avoiding a previously
-/// used index so two players don't spawn next to each other.
-let randomSpawn (spawns: SpawnPoint array) (rng: Random) (excludeIndex: int) : int * int * int =
+/// Pick a spawn point avoiding every currently-occupied base index, so two ships
+/// never start on the same base. Falls back to allowing reuse only when all bases
+/// are occupied (more players than bases), and to a random arena position when the
+/// level has no bases at all.
+let randomSpawnExcluding (spawns: SpawnPoint array) (rng: Random) (occupied: int list) : int * int * int =
     if spawns.Length = 0 then
-        // Fallback: random position in arena
-        let x = rng.Next MapWidth
-        let y = rng.Next MapHeight
-        x, y, -1
-    elif spawns.Length = 1 then
-        let sp = spawns[0]
-        sp.X + sp.Width / 2, sp.Y, 0
+        rng.Next MapWidth, rng.Next MapHeight, -1
     else
-        let mutable idx = rng.Next spawns.Length
-        while idx = excludeIndex do
-            idx <- rng.Next spawns.Length
+        let free = [| for i in 0 .. spawns.Length - 1 do if not (List.contains i occupied) then yield i |]
+        let idx =
+            if free.Length > 0 then free[rng.Next free.Length]
+            else rng.Next spawns.Length   // all bases taken — unavoidable reuse
         let sp = spawns[idx]
         sp.X + sp.Width / 2, sp.Y, idx
 
@@ -265,7 +285,7 @@ let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: flo
                 let py = iy + dy
                 if px >= 0 && px < MapWidth && py >= 0 && py < MapHeight then
                     let existing = pixels[py * MapWidth + px]
-                    if existing <> VoidColor && existing <> WaterColor && existing <> BaseColor && not (isIndestructible existing) then
+                    if existing <> VoidColor && existing <> WaterColor && not (isBase existing) then
                         pixels[py * MapWidth + px] <- VoidColor
                         erased <- true
     erased

@@ -107,6 +107,20 @@ let FullHealth = 90
 [<Literal>]
 let DeathThreshold = 0
 
+/// Health recovered per tick while resting on a base/landing pad
+[<Literal>]
+let BaseHealRate = 1
+
+/// Distance (pixels) below the ship centre scanned for a base bar — the ship
+/// rests with its centre in the void just above the pad surface.
+[<Literal>]
+let BaseLandReach = 3.0
+
+/// Speed (|vx|+|vy|) below which a ship over a base counts as "parked" (so it can
+/// heal and switch weapons). Faster than this = flying past, not landed.
+[<Literal>]
+let BaseLandSpeed = 1.0
+
 // ─── Entity Pool Sizes ─────────────────────────────────────────────────
 
 let MaxEntities = 152
