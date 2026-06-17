@@ -275,11 +275,11 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
             let inv = if speedDamage > 0 && p.InvTimer = 0 then SpawnInvincibilityTicks else p.InvTimer
             ({ p with PosX = p.PosX; PosY = p.PosY; VelX = 0.0; VelY = 0.0
                       Flags = flags; Health = h; InvTimer = inv
-                      WallHitCount = p.WallHitCount + 1 }, [], [], false)
+                      WallHitCount = p.WallHitCount + 1; OnBase = false }, [], [], false)
         else
             let px = clampF 0.0 maxX px
             let py = clampF 0.0 maxY py
-            ({ p with PosX = px; PosY = py; VelX = p.VelX; VelY = velY }, [], [], false)
+            ({ p with PosX = px; PosY = py; VelX = p.VelX; VelY = velY; OnBase = false }, [], [], false)
     else
 
     // Invincibility countdown
@@ -349,11 +349,47 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     let px = posX / PositionScale
     let py = posY / PositionScale
 
+    // Base/landing pad detection. A ship rests with its centre in the void just
+    // above the pad bar, so scan EVERY pixel from the centre down to BaseLandReach
+    // for the topmost pad row (or -1). Scanning the whole range — not just the two
+    // endpoints — matters: pad bars are beveled, so an endpoint-only check can miss
+    // the pad at some columns and make a parked ship sink and snap repeatedly.
+    // "Parked" (slow) ships heal and may switch weapons.
+    let speed = abs velX + abs velY
+    let padTopRow =
+        match gs.Level with
+        | Some level ->
+            let ipx = int (round px)
+            let irow = int (round py)
+            let reach = int (ceil BaseLandReach)
+            let mutable found = -1
+            let mutable d = 0
+            while found < 0 && d <= reach do
+                if Terrain.isBase (Terrain.getPixel level.Pixels ipx (irow + d)) then found <- irow + d
+                d <- d + 1
+            found
+        | None -> -1
+    let baseNear = padTopRow >= 0
+    let onBase = baseNear && speed < BaseLandSpeed
+
     let posX, posY, velX, velY, angle, health, wallHitCount, wallDmgCooldown, terrainModified =
         match gs.Level with
         | Some level ->
             let pixel = Terrain.terrainAt level.Pixels px py
-            if Terrain.isWall pixel then
+            if baseNear then
+                // Base/landing pad: a solid surface that deals NO collision damage.
+                // Resting on it stops the ship and recharges energy; pressing thrust
+                // lifts off again.
+                let healed = if onBase then min FullHealth (p.Health + BaseHealRate) else p.Health
+                if p.KeyUp then
+                    // Lifting off: let thrust carry the ship freely.
+                    (posX, posY, velX, velY, angle, healed, p.WallHitCount, wallDmgCooldown, false)
+                else
+                    // Resting: come to a full stop (the pad is not slippery) and seat
+                    // the ship one pixel above the pad's top row so it doesn't hover.
+                    let restY = if padTopRow > 0 then float (padTopRow - 1) * PositionScale else p.PosY
+                    (p.PosX, restY, 0.0, 0.0, angle, healed, p.WallHitCount, wallDmgCooldown, false)
+            elif Terrain.isWall pixel then
                 let speed = abs velX + abs velY
                 let speedDamage = int (speed * NormalKnockbackScale)
                 let h, whc, wdc =
@@ -419,7 +455,8 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 InvTimer = invTimer; WallDmgCooldown = wallDmgCooldown
                 StunTimer = stunTimer
                 AnimAngle = animAngle; ReloadTimer = reloadTimer
-                SpecialReloadTimer = specialReloadTimer }
+                SpecialReloadTimer = specialReloadTimer
+                OnBase = onBase }
 
     // Cannon firing (main fire key) — always single-shot Cannon
     let p, newEnts1 =
@@ -821,6 +858,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
     for ei in 0 .. es.Length - 1 do
         let mutable ent = es[ei]
         if ent.EType <> EntityType.None then
+            let mutable atomDetonate = false
             for i in 0 .. gs.NumPlayers - 1 do
                 let p = ps[i]
                 if p.Alive && i <> ent.Owner && p.InvTimer = 0 then
@@ -927,20 +965,28 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 newParticles <- newParticles @ spawnExplosion gs.Rng ent.X ent.Y 10 2.0 20 (ent.Owner % 4)
                                 ent <- { ent with EType = EntityType.None }  // Mark for removal
                             | _ ->
-                                if ent.WeaponIdx = WeaponType.AtomWeapon then
-                                    // Atom weapon: detonate into nuke on player hit
-                                    ent <- { ent with EType = EntityType.Nuke; Radius = 0.0
-                                                      VelX = ent.VelX * 0.2; VelY = ent.VelY * 0.2 }
-                                else
-                                    ent <- { ent with EType = EntityType.None }  // Mark for removal
+                                // Consume the projectile so it cannot hit further players
+                                // this tick. An atom round detonates into a Nuke *after* the
+                                // player loop (below) rather than mid-loop, so overlapping
+                                // players aren't struck as both a Heavy round and a Nuke.
+                                if ent.WeaponIdx = WeaponType.AtomWeapon then atomDetonate <- true
+                                ent <- { ent with EType = EntityType.None }  // Mark for removal
 
-                            // Credit kill
-                            if np.Health <= DeathThreshold then
+                            // Credit kill — only when THIS damaging hit is what crossed the
+                            // death threshold. Prevents double-crediting when several
+                            // projectiles strike a player on the tick it dies, and avoids
+                            // crediting zero-damage EMP/Shield hits.
+                            if damage > 0 && p.Health > DeathThreshold && np.Health <= DeathThreshold then
                                 if ent.Owner >= 0 && ent.Owner < gs.NumPlayers then
                                     let killer = ps[ent.Owner]
                                     ps[ent.Owner] <- { killer with KillCount = killer.KillCount + 1 }
 
                             ps[i] <- np
+            // Atom round detonates once, after every player was tested against the
+            // original Heavy round. The resulting Nuke expands over the next ticks.
+            if atomDetonate then
+                ent <- { ent with EType = EntityType.Nuke; Radius = 0.0
+                                  VelX = ent.VelX * 0.2; VelY = ent.VelY * 0.2 }
         es[ei] <- ent
 
     // Filter out "removed" entities (marked with EType = None)
@@ -1279,14 +1325,13 @@ let gameTick (gs: GameState) : GameState =
 
     // Respawn dead players after 90 ticks (~2.5 seconds)
     let players =
-        // Gather spawn indices of alive players to exclude
-        let aliveSpawnIndices = players |> List.choose (fun p -> if p.Alive then Some p.SpawnIndex else None)
+        // Bases occupied by live players — a respawning ship must avoid all of them
+        let occupied = players |> List.choose (fun p -> if p.Alive && p.SpawnIndex >= 0 then Some p.SpawnIndex else None)
         players |> List.mapi (fun i p ->
             if i < gs.NumPlayers && not p.Alive then
                 let a = p.AnimAngle + 1.0
                 if a > 90.0 then
-                    let exclude = aliveSpawnIndices |> List.tryHead |> Option.defaultValue -1
-                    let spawned, _ = spawnPlayer gs.Rng gs.Level exclude p
+                    let spawned, _ = spawnPlayerExcluding gs.Rng gs.Level occupied p
                     spawned
                 else
                     { p with AnimAngle = a }
@@ -1304,23 +1349,36 @@ let gameTick (gs: GameState) : GameState =
 // ─── Init Round ────────────────────────────────────────────────────────
 
 let initRound (gs: GameState) : GameState =
-    // Reload level terrain from disk to reset any ammo damage
+    // Reload level terrain from disk to reset any ammo damage. Desktop only —
+    // the Fable/web host has no file system and resets terrain from a pristine
+    // in-memory copy before calling initRound.
     let gs =
+#if FABLE_COMPILER
+        gs
+#else
         if gs.LevelFilePath <> "" && System.IO.File.Exists gs.LevelFilePath then
             let freshLevel = Terrain.loadLevel gs.LevelFilePath
             { gs with Level = Some freshLevel; TerrainDirty = true }
         else gs
+#endif
 
     let cpuStart = gs.NumPlayers - gs.CpuCount  // First CPU player index
+    // Thread the set of occupied base indices through the players so each one spawns
+    // onto a base not already taken by an earlier player this round.
     let players, _ =
-        gs.Players |> List.indexed |> List.fold (fun (acc, lastIdx) (i, p) ->
+        gs.Players
+        |> List.indexed
+        |> List.mapFold (fun occupied (i, p) ->
             if i < gs.NumPlayers then
-                let spawned, idx = spawnPlayer gs.Rng gs.Level lastIdx p
-                let spawned = { spawned with WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
-                                             ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = i >= cpuStart }
-                (acc @ [spawned], idx)
-            else (acc @ [p], lastIdx)
-        ) ([], -1)
+                let spawned, idx = spawnPlayerExcluding gs.Rng gs.Level occupied p
+                let spawned =
+                    { spawned with
+                        WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
+                        ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = i >= cpuStart }
+                spawned, (if idx >= 0 then idx :: occupied else occupied)
+            else
+                p, occupied
+        ) []
     { gs with
         Players = players
         Entities = []

@@ -1,106 +1,186 @@
-/// FsRocket Renderer
-/// Split-screen WinForms rendering, scaled 320x200 VGA Mode 13h
-/// Each player gets a viewport (156x86, scaled 3x here)
+/// FsRocket Renderer — HTML5 Canvas 2D (Fable)
+/// Split-screen rendering of the 320x400 arena, ported from the GDI+ renderer.
+/// Each player gets a viewport; terrain is drawn from a cached offscreen canvas.
 module FsRocket.Renderer
 
 open System
-open System.Drawing
-open System.Drawing.Drawing2D
-open System.Drawing.Imaging
-open System.Runtime.InteropServices
+open Fable.Core
 open FsRocket.Physics
 open FsRocket.Terrain
 open FsRocket.Weapons
 open FsRocket.Types
 open FsRocket.Entities
 
-// ─── Scale factor (3x 320x200) ───────────────────────────
-
+// ─── Scale factor (3x 320x200) ──────────────────────────────────────────
 let Scale = 3
-
-/// Extra zoom factor for terrain bitmaps — makes terrain features appear bigger
-/// 1.0 = original size, >1.0 = zoomed in (bigger terrain features)
+/// Extra zoom factor for terrain — makes features appear bigger
 let TerrainZoom = 1.25
+let private scaleF = float Scale
+let private effScale = scaleF * TerrainZoom
 
-// ─── Color palette (approximate VGA Mode 13h palette) ──────────────────
+// ─── Canvas 2D interop (raw JS via Emit — front-end is Fable-only) ───────
+// `ctx` and offscreen canvases are passed around as obj.
 
-let playerColors = [|
-    Color.FromArgb(0x5F, 0x5F, 0xFF)   // Player 1: Blue  
-    Color.FromArgb(0x3F, 0xCF, 0x3F)   // Player 2: Green 
-    Color.FromArgb(0xFF, 0x3F, 0x3F)   // Player 3: Red   
-    Color.FromArgb(0xFF, 0xFF, 0x3F)   // Player 4: Yellow
-|]
+[<Emit("document.createElement('canvas')")>]
+let private newCanvas () : obj = jsNative
+[<Emit("$0.getContext('2d')")>]
+let private get2d (canvas: obj) : obj = jsNative
+[<Emit("$0.width = $1")>]
+let private setCanvasW (canvas: obj) (w: int) : unit = jsNative
+[<Emit("$0.height = $1")>]
+let private setCanvasH (canvas: obj) (h: int) : unit = jsNative
+[<Emit("$0.createImageData($1, $2)")>]
+let private createImageData (ctx: obj) (w: int) (h: int) : obj = jsNative
+[<Emit("$0.data")>]
+let private imgBytes (img: obj) : byte[] = jsNative
+[<Emit("$0.putImageData($1, 0, 0)")>]
+let private putImageData (ctx: obj) (img: obj) : unit = jsNative
 
-let playerDarkColors = [|
-    Color.FromArgb(0x2F, 0x2F, 0x9F)
-    Color.FromArgb(0x1F, 0x7F, 0x1F)
-    Color.FromArgb(0x9F, 0x1F, 0x1F)
-    Color.FromArgb(0x9F, 0x9F, 0x1F)
-|]
+[<Emit("$0.fillStyle = $1")>]
+let private setFill (ctx: obj) (c: string) : unit = jsNative
+[<Emit("$0.strokeStyle = $1")>]
+let private setStroke (ctx: obj) (c: string) : unit = jsNative
+[<Emit("$0.lineWidth = $1")>]
+let private setLineWidth (ctx: obj) (w: float) : unit = jsNative
+[<Emit("$0.font = $1")>]
+let private setFontJs (ctx: obj) (f: string) : unit = jsNative
+[<Emit("$0.textBaseline = $1")>]
+let private setBaseline (ctx: obj) (b: string) : unit = jsNative
+[<Emit("$0.imageSmoothingEnabled = $1")>]
+let private setSmoothing (ctx: obj) (b: bool) : unit = jsNative
 
-let bgColor = Color.FromArgb(0x00, 0x00, 0x00)
-let wallColor = Color.FromArgb(0x40, 0x40, 0x50)
-let gridColor = Color.FromArgb(0x18, 0x18, 0x24)
-let bulletColor = Color.FromArgb(0xFF, 0xFF, 0x80)
-let mineColor = Color.FromArgb(0xFF, 0x60, 0x20)
-let nukeColor = Color.FromArgb(0xFF, 0xFF, 0xFF)
-let laserColor = Color.FromArgb(0xFF, 0x20, 0x20)
-let shieldColor = Color.FromArgb(0x80, 0xC0, 0xFF)
-let empColor = Color.FromArgb(0xC0, 0x40, 0xFF)
-let flameColor = Color.FromArgb(0xFF, 0x80, 0x20)
-let hudBgColor = Color.FromArgb(0x08, 0x08, 0x10)
+[<Emit("$0.fillRect($1, $2, $3, $4)")>]
+let private fillRectJs (ctx: obj) (x: float) (y: float) (w: float) (h: float) : unit = jsNative
+[<Emit("$0.strokeRect($1, $2, $3, $4)")>]
+let private strokeRectJs (ctx: obj) (x: float) (y: float) (w: float) (h: float) : unit = jsNative
+[<Emit("$0.fillText($1, $2, $3)")>]
+let private fillTextJs (ctx: obj) (s: string) (x: float) (y: float) : unit = jsNative
+[<Emit("$0.beginPath()")>]
+let private beginPath (ctx: obj) : unit = jsNative
+[<Emit("$0.moveTo($1, $2)")>]
+let private moveTo (ctx: obj) (x: float) (y: float) : unit = jsNative
+[<Emit("$0.lineTo($1, $2)")>]
+let private lineTo (ctx: obj) (x: float) (y: float) : unit = jsNative
+[<Emit("$0.closePath()")>]
+let private closePath (ctx: obj) : unit = jsNative
+[<Emit("$0.stroke()")>]
+let private strokePath (ctx: obj) : unit = jsNative
+[<Emit("$0.fill()")>]
+let private fillPath (ctx: obj) : unit = jsNative
+[<Emit("$0.arc($1, $2, $3, 0, 6.283185307179586)")>]
+let private arcFull (ctx: obj) (x: float) (y: float) (r: float) : unit = jsNative
+[<Emit("$0.save()")>]
+let private save (ctx: obj) : unit = jsNative
+[<Emit("$0.restore()")>]
+let private restore (ctx: obj) : unit = jsNative
+[<Emit("$0.rect($1, $2, $3, $4)")>]
+let private rectPath (ctx: obj) (x: float) (y: float) (w: float) (h: float) : unit = jsNative
+[<Emit("$0.clip()")>]
+let private clipJs (ctx: obj) : unit = jsNative
+[<Emit("$0.drawImage($1, $2, $3, $4, $5, $6, $7, $8, $9)")>]
+let private drawImage9 (ctx: obj) (img: obj) (sx: float) (sy: float) (sw: float) (sh: float) (dx: float) (dy: float) (dw: float) (dh: float) : unit = jsNative
 
-// ─── Pre-allocated GDI+ resources (avoid per-frame allocation churn) ───
-// These are module-level cached objects reused across frames.
+// ─── Colour helpers ──────────────────────────────────────────────────────
+let private cssRGB (r: int) (g: int) (b: int) = $"rgb({r},{g},{b})"
+let private cssRGBA (r: int) (g: int) (b: int) (a: int) = $"rgba({r},{g},{b},{float a / 255.0})"
 
-let private cachedBgBrush = new SolidBrush(bgColor)
-let private cachedBulletBrush = new SolidBrush(bulletColor)
-let private cachedGridPen = new Pen(gridColor, 1.0f)
-let private cachedShieldPen = new Pen(shieldColor, float32 Scale)
-let private cachedEmpStarBrush = new SolidBrush(empColor)
-let private cachedHudBgBrush = new SolidBrush(hudBgColor)
-let private cachedWhiteBrush = new SolidBrush(Color.White)
-let private cachedClearBrush = new SolidBrush(Color.Black)
-let private cachedHudFont = new Font("Consolas", 8.0f, FontStyle.Bold)
-let private cachedBigFont = new Font("Consolas", 14.0f, FontStyle.Bold)
-let private cachedRedBrush = new SolidBrush(Color.Red)
-let private cachedHealthBarBg = new SolidBrush(Color.FromArgb(0x30, 0x00, 0x00))
-let private cachedThrustBrush = new SolidBrush(Color.FromArgb(0xFF, 0xA0, 0x20))
-let private cachedMmBg = new SolidBrush(Color.FromArgb(0xA0, 0x08, 0x08, 0x10))
-let private cachedMmBorder = new Pen(Color.FromArgb(0x80, 0x40, 0x40, 0x60), 1.0f)
-let private cachedMmWallBrush = new SolidBrush(Color.FromArgb(0x80, 0x60, 0x60, 0x80))
-let private cachedDirtclodBrush = new SolidBrush(Color.FromArgb(0xFF, 0x8B, 0x60, 0x20))
-let private cachedDirtclodTrailBrush = new SolidBrush(Color.FromArgb(0x80, 0x60, 0x40, 0x10))
-let private cachedLaserTipBrush = new SolidBrush(Color.FromArgb(0xFF, 0xFF, 0x80, 0x80))
-let private cachedExhBrush = new SolidBrush(Color.FromArgb(0x80, 0xFF, 0x60, 0x10))
-let private cachedPlayerBrushes = playerColors |> Array.map (fun c -> new SolidBrush(c))
-let private cachedPlayerDarkPens = playerDarkColors |> Array.map (fun c -> new Pen(c, 1.0f))
+let playerRGB = [| (0x5F, 0x5F, 0xFF); (0x3F, 0xCF, 0x3F); (0xFF, 0x3F, 0x3F); (0xFF, 0xFF, 0x3F) |]
+let playerDarkRGB = [| (0x2F, 0x2F, 0x9F); (0x1F, 0x7F, 0x1F); (0x9F, 0x1F, 0x1F); (0x9F, 0x9F, 0x1F) |]
+let playerColors = playerRGB |> Array.map (fun (r, g, b) -> cssRGB r g b)
+let playerDarkColors = playerDarkRGB |> Array.map (fun (r, g, b) -> cssRGB r g b)
+let private playerRGBA (i: int) (a: int) = let (r, g, b) = playerRGB[i % 4] in cssRGBA r g b a
 
-// ─── Standard VGA Mode 13h Default Palette (256 colors) ────────────────
-// Entries 0-15: CGA colors, 16-255: 6x6x6 color cube + grayscale ramp
+let private bgColor = "rgb(0,0,0)"
+let private gridColor = "rgb(24,24,36)"
+let private bulletColor = "rgb(255,255,128)"
+let private laserColor = "rgb(255,32,32)"
+let private shieldColor = "rgb(128,192,255)"
+let private empColor = "rgb(192,64,255)"
+let private hudBgColor = "rgb(8,8,16)"
+let private healthBgColor = "rgb(48,0,0)"
+let private thrustColor = "rgb(255,160,32)"
+/// Landing pad / base — distinct green bar
+let private basePadArgb = (0xFF <<< 24) ||| (0x30 <<< 16) ||| (0xC0 <<< 8) ||| 0x60
 
+let private hudFont = "bold 11px Consolas, monospace"
+let private bigFont = "bold 20px Consolas, monospace"
+let private titleFont = "bold 26px Consolas, monospace"
+let private subFont = "13px Consolas, monospace"
+let private keyFont = "12px Consolas, monospace"
+
+// ─── Mid-level draw helpers ──────────────────────────────────────────────
+let private fillCircle ctx cx cy r color =
+    setFill ctx color
+    beginPath ctx
+    arcFull ctx cx cy (max 0.0 r)
+    fillPath ctx
+
+let private strokeCircle ctx cx cy r lw color =
+    setStroke ctx color
+    setLineWidth ctx lw
+    beginPath ctx
+    arcFull ctx cx cy (max 0.0 r)
+    strokePath ctx
+
+let private lineSeg ctx x1 y1 x2 y2 lw color =
+    setStroke ctx color
+    setLineWidth ctx lw
+    beginPath ctx
+    moveTo ctx x1 y1
+    lineTo ctx x2 y2
+    strokePath ctx
+
+let private fillRectC ctx x y w h color =
+    setFill ctx color
+    fillRectJs ctx x y w h
+
+let private polyPath ctx (pts: (float * float) list) =
+    beginPath ctx
+    match pts with
+    | (x0, y0) :: rest ->
+        moveTo ctx x0 y0
+        for (x, y) in rest do lineTo ctx x y
+        closePath ctx
+    | [] -> ()
+
+let private fillPoly ctx pts color =
+    setFill ctx color
+    polyPath ctx pts
+    fillPath ctx
+
+let private strokePoly ctx pts lw color =
+    setStroke ctx color
+    setLineWidth ctx lw
+    polyPath ctx pts
+    strokePath ctx
+
+let private drawText ctx (s: string) x y font color =
+    setFontJs ctx font
+    setFill ctx color
+    fillTextJs ctx s x y
+
+let private clipRect ctx x y w h =
+    save ctx
+    beginPath ctx
+    rectPath ctx x y w h
+    clipJs ctx
+
+// ─── Standard VGA Mode 13h palette (256 colours) → ARGB ints ─────────────
 let private buildVgaPalette () : int array =
     let pal = Array.zeroCreate<int> 256
-    // 0-15: Standard CGA/EGA colors (6-bit VGA values scaled to 8-bit)
-    let cga = [|
-        (0x00, 0x00, 0x00); (0x00, 0x00, 0xAA); (0x00, 0xAA, 0x00); (0x00, 0xAA, 0xAA)
-        (0xAA, 0x00, 0x00); (0xAA, 0x00, 0xAA); (0xAA, 0x55, 0x00); (0xAA, 0xAA, 0xAA)
-        (0x55, 0x55, 0x55); (0x55, 0x55, 0xFF); (0x55, 0xFF, 0x55); (0x55, 0xFF, 0xFF)
-        (0xFF, 0x55, 0x55); (0xFF, 0x55, 0xFF); (0xFF, 0xFF, 0x55); (0xFF, 0xFF, 0xFF)
-    |]
+    let cga =
+        [| (0x00, 0x00, 0x00); (0x00, 0x00, 0xAA); (0x00, 0xAA, 0x00); (0x00, 0xAA, 0xAA)
+           (0xAA, 0x00, 0x00); (0xAA, 0x00, 0xAA); (0xAA, 0x55, 0x00); (0xAA, 0xAA, 0xAA)
+           (0x55, 0x55, 0x55); (0x55, 0x55, 0xFF); (0x55, 0xFF, 0x55); (0x55, 0xFF, 0xFF)
+           (0xFF, 0x55, 0x55); (0xFF, 0x55, 0xFF); (0xFF, 0xFF, 0x55); (0xFF, 0xFF, 0xFF) |]
     for i in 0..15 do
         let r, g, b = cga[i]
         pal[i] <- (0xFF <<< 24) ||| (r <<< 16) ||| (g <<< 8) ||| b
-    // 16-231: 6x6x6 color cube (standard VGA default)
     for r in 0..5 do
         for g in 0..5 do
             for b in 0..5 do
                 let idx = 16 + r * 36 + g * 6 + b
-                let rv = r * 51  // 0, 51, 102, 153, 204, 255
-                let gv = g * 51
-                let bv = b * 51
-                pal[idx] <- (0xFF <<< 24) ||| (rv <<< 16) ||| (gv <<< 8) ||| bv
-    // 232-255: Grayscale ramp
+                pal[idx] <- (0xFF <<< 24) ||| (r * 51 <<< 16) ||| (g * 51 <<< 8) ||| (b * 51)
     for i in 0..23 do
         let v = i * 255 / 23
         pal[232 + i] <- (0xFF <<< 24) ||| (v <<< 16) ||| (v <<< 8) ||| v
@@ -108,47 +188,44 @@ let private buildVgaPalette () : int array =
 
 let vgaPalette = buildVgaPalette ()
 
-// ─── Terrain Bitmap Cache ──────────────────────────────────────────────
+// ─── Terrain offscreen-canvas cache ──────────────────────────────────────
+let mutable private terrainCanvas: obj option = None
+let mutable private terrainCanvasLevel: string = ""
 
-let mutable private terrainBitmap: Bitmap option = None
-let mutable private terrainBitmapLevel: string = ""
+let private buildTerrainCanvas (level: LevelData) : obj =
+    let canvas = newCanvas ()
+    setCanvasW canvas MapWidth
+    setCanvasH canvas MapHeight
+    let tctx = get2d canvas
+    let img = createImageData tctx MapWidth MapHeight
+    let data = imgBytes img
+    for i in 0 .. MapWidth * MapHeight - 1 do
+        let pixel = level.Pixels[i]
+        // Bases (landing pads) get a fixed, recognizable colour so players can
+        // spot where to land, heal and swap weapons.
+        let argb = if isBase pixel then basePadArgb else vgaPalette[int pixel]
+        let j = i * 4
+        data[j] <- byte ((argb >>> 16) &&& 0xFF)
+        data[j + 1] <- byte ((argb >>> 8) &&& 0xFF)
+        data[j + 2] <- byte (argb &&& 0xFF)
+        data[j + 3] <- 255uy
+    putImageData tctx img
+    canvas
 
-/// Build a Bitmap from terrain pixel data using the VGA palette
-let buildTerrainBitmap (level: LevelData) : Bitmap =
-    let bmp = new Bitmap(MapWidth, MapHeight, PixelFormat.Format32bppArgb)
-    let bmpData = bmp.LockBits(Rectangle(0, 0, MapWidth, MapHeight), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb)
-    let stride = bmpData.Stride
-    let strideInts = stride / 4  // stride in int32 units
-    let buf = Array.zeroCreate<int> (strideInts * MapHeight)
-    for y in 0 .. MapHeight - 1 do
-        for x in 0 .. MapWidth - 1 do
-            let pixel = int level.Pixels[y * MapWidth + x]
-            buf[y * strideInts + x] <- vgaPalette[pixel]
-    Marshal.Copy(buf, 0, bmpData.Scan0, buf.Length)
-    bmp.UnlockBits bmpData
-    bmp
+let private getTerrainCanvas (level: LevelData) (terrainDirty: bool) : obj =
+    match terrainCanvas with
+    | Some c when terrainCanvasLevel = level.Name && not terrainDirty -> c
+    | _ ->
+        let c = buildTerrainCanvas level
+        terrainCanvas <- Some c
+        terrainCanvasLevel <- level.Name
+        c
 
-/// Get or create cached terrain bitmap for the current level.
-/// Rebuilds when level changes or when terrain has been modified by ammo.
-let getTerrainBitmap (level: LevelData) (terrainDirty: bool) : Bitmap =
-    if terrainBitmapLevel <> level.Name || terrainDirty then
-        terrainBitmap |> Option.iter (fun b -> b.Dispose())
-        let bmp = buildTerrainBitmap level
-        terrainBitmap <- Some bmp
-        terrainBitmapLevel <- level.Name
-        bmp
-    else
-        terrainBitmap.Value
-
-// ─── Layout: viewports for 1-4 players ─────────────────────────────────
-
-/// Returns (x, y, w, h) for each player's viewport on the window
+// ─── Layout: viewports for 1-4 players ───────────────────────────────────
 let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
-    let hudH = 40  // HUD bar height at bottom of each viewport
     match numPlayers with
     | 1 -> [| (0, 0, windowW, windowH) |]
-    | 2 -> [| (0, 0, windowW / 2, windowH)
-              (windowW / 2, 0, windowW / 2, windowH) |]
+    | 2 -> [| (0, 0, windowW / 2, windowH); (windowW / 2, 0, windowW / 2, windowH) |]
     | 3 | 4 ->
         [| (0, 0, windowW / 2, windowH / 2)
            (windowW / 2, 0, windowW / 2, windowH / 2)
@@ -156,499 +233,307 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
            (windowW / 2, windowH / 2, windowW / 2, windowH / 2) |]
     | _ -> [||]
 
-// ─── Draw a single player's viewport ──────────────────────────────────
-
-let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
-                   (vx: int) (vy: int) (vw: int) (vh: int) =
+// ─── Draw a single player's viewport ─────────────────────────────────────
+let drawPlayerView (ctx: obj) (gs: GameState) (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) =
     let hudH = 36
     let gameH = vh - hudH
     let p = gs.Players[playerIdx]
+    let fvx, fvy, fvw, fgameH = float vx, float vy, float vw, float gameH
 
-    // Clip to viewport
-    g.SetClip(Rectangle(vx, vy, vw, vh))
+    let camX = p.PosX / PositionScale - float vw / (2.0 * effScale)
+    let camY = p.PosY / PositionScale - float gameH / (2.0 * effScale)
+    let toX (wx: float) = fvx + (wx - camX) * effScale
+    let toY (wy: float) = fvy + (wy - camY) * effScale
 
-    // Background
-    g.FillRectangle(cachedBgBrush, vx, vy, vw, gameH)
+    // ── Game area (clipped) ──
+    clipRect ctx fvx fvy fvw fgameH
+    fillRectC ctx fvx fvy fvw fgameH bgColor
 
-    // Calculate view offset (center on player)
-    let effectiveScaleF = float Scale * TerrainZoom
-    let camX = p.PosX / PositionScale - float vw / (2.0 * effectiveScaleF)
-    let camY = p.PosY / PositionScale - float gameH / (2.0 * effectiveScaleF)
-
-    let toScreenX (wx: float) = vx + int ((wx - camX) * effectiveScaleF)
-    let toScreenY (wy: float) = vy + int ((wy - camY) * effectiveScaleF)
-
-    // Grid lines (every 32 pixels in arena)
     match gs.Level with
     | Some level ->
-        // Draw terrain bitmap (scaled with extra zoom)
-        let tbmp = getTerrainBitmap level gs.TerrainDirty
-        // Source rect: visible portion of terrain in arena coords (adjusted for zoom)
-        let effectiveScale = float Scale * TerrainZoom
+        let tcanvas = getTerrainCanvas level gs.TerrainDirty
         let srcX = max 0 (int camX)
         let srcY = max 0 (int camY)
-        let srcW = min (MapWidth - srcX) (int (float vw / effectiveScale) + 1)
-        let srcH = min (MapHeight - srcY) (int (float gameH / effectiveScale) + 1)
+        let srcW = min (MapWidth - srcX) (int (float vw / effScale) + 1)
+        let srcH = min (MapHeight - srcY) (int (float gameH / effScale) + 1)
         if srcW > 0 && srcH > 0 then
-            let destX = toScreenX (float srcX)
-            let destY = toScreenY (float srcY)
-            let destW = int (float srcW * effectiveScale)
-            let destH = int (float srcH * effectiveScale)
-            g.DrawImage(tbmp, Rectangle(destX, destY, destW, destH),
-                        Rectangle(srcX, srcY, srcW, srcH), GraphicsUnit.Pixel)
+            let destX = toX (float srcX)
+            let destY = toY (float srcY)
+            drawImage9 ctx tcanvas (float srcX) (float srcY) (float srcW) (float srcH)
+                destX destY (float srcW * effScale) (float srcH * effScale)
     | None ->
-        // No terrain: draw grid + hardcoded walls
+        // No terrain: grid + arena walls
         let startGX = int (floor (camX / 32.0)) * 32
         let startGY = int (floor (camY / 32.0)) * 32
-        for gx in startGX .. 32 .. startGX + int (float vw / effectiveScaleF) + 32 do
-            let sx = toScreenX (float gx)
-            if sx >= vx && sx <= vx + vw then
-                g.DrawLine(cachedGridPen, sx, vy, sx, vy + gameH)
-        for gy in startGY .. 32 .. startGY + int (float gameH / effectiveScaleF) + 32 do
-            let sy = toScreenY (float gy)
-            if sy >= vy && sy <= vy + gameH then
-                g.DrawLine(cachedGridPen, vx, sy, vx + vw, sy)
-
-        // Arena boundary walls
-        use wallPen = new Pen(wallColor, float32 (2 * Scale))
-        let wx0 = toScreenX 0.0
-        let wy0 = toScreenY 0.0
-        let wx1 = toScreenX ArenaWidth
-        let wy1 = toScreenY ArenaHeight
-        g.DrawRectangle(wallPen, wx0, wy0, wx1 - wx0, wy1 - wy0)
-
-        // Interior arena walls
-        let wallFillColor = Color.FromArgb(0x50, 0x50, 0x68)
-        let wallHighlight = Color.FromArgb(0x68, 0x68, 0x80)
-        let wallShadow = Color.FromArgb(0x30, 0x30, 0x40)
-        use wallFillBrush = new SolidBrush(wallFillColor)
-        use wallHiPen = new Pen(wallHighlight, 1.0f)
-        use wallShPen = new Pen(wallShadow, 1.0f)
+        for gx in startGX .. 32 .. startGX + int (float vw / effScale) + 32 do
+            let sx = toX (float gx)
+            if sx >= fvx && sx <= fvx + fvw then lineSeg ctx sx fvy sx (fvy + fgameH) 1.0 gridColor
+        for gy in startGY .. 32 .. startGY + int (float gameH / effScale) + 32 do
+            let sy = toY (float gy)
+            if sy >= fvy && sy <= fvy + fgameH then lineSeg ctx fvx sy (fvx + fvw) sy 1.0 gridColor
+        strokePoly ctx
+            [ (toX 0.0, toY 0.0); (toX ArenaWidth, toY 0.0)
+              (toX ArenaWidth, toY ArenaHeight); (toX 0.0, toY ArenaHeight) ]
+            (2.0 * scaleF) "rgb(64,64,80)"
         for w in arenaWalls do
-            let swx = toScreenX w.X
-            let swy = toScreenY w.Y
-            let sww = int (w.W * effectiveScaleF)
-            let swh = int (w.H * effectiveScaleF)
-            g.FillRectangle(wallFillBrush, swx, swy, sww, swh)
-            g.DrawLine(wallHiPen, swx, swy, swx + sww, swy)
-            g.DrawLine(wallHiPen, swx, swy, swx, swy + swh)
-            g.DrawLine(wallShPen, swx + sww, swy, swx + sww, swy + swh)
-            g.DrawLine(wallShPen, swx, swy + swh, swx + sww, swy + swh)
+            let swx, swy = toX w.X, toY w.Y
+            let sww, swh = w.W * effScale, w.H * effScale
+            fillRectC ctx swx swy sww swh "rgb(80,80,104)"
 
-    // Draw entities (bullets, mines, etc.)
+    let margin = 40.0 * scaleF
+    let inView (ex: float) (ey: float) =
+        ex > fvx - margin && ex < fvx + fvw + margin && ey > fvy - margin && ey < fvy + fgameH + margin
+
+    // ── Entities ──
     for ent in gs.Entities do
-        let ex = toScreenX ent.X
-        let ey = toScreenY ent.Y
-        let margin = 40 * Scale
-        if ex > vx - margin && ex < vx + vw + margin && ey > vy - margin && ey < vy + gameH + margin then
+        let ex, ey = toX ent.X, toY ent.Y
+        if inView ex ey then
             match ent.EType with
             | EntityType.Expanding ->
-                // Sonicboom: expanding ring
-                let ringR = int (ent.Radius * float Scale)
-                if ringR > 0 then
+                let ringR = ent.Radius * scaleF
+                if ringR > 0.0 then
                     let alpha = max 40 (255 - int (ent.Radius * 2.0))
-                    let c = playerColors[ent.Owner % 4]
-                    use ringPen = new Pen(Color.FromArgb(alpha, c), float32 (max 1 (3 * Scale - int (ent.Radius / 20.0))))
-                    g.DrawEllipse(ringPen, ex - ringR, ey - ringR, ringR * 2, ringR * 2)
-                    // Inner glow ring
-                    let innerR = ringR - Scale * 2
-                    if innerR > 0 then
-                        use innerPen = new Pen(Color.FromArgb(alpha / 2, Color.White), 1.0f)
-                        g.DrawEllipse(innerPen, ex - innerR, ey - innerR, innerR * 2, innerR * 2)
-
+                    strokeCircle ctx ex ey ringR (max 1.0 (3.0 * scaleF - ent.Radius / 20.0)) (playerRGBA ent.Owner alpha)
+                    let innerR = ringR - scaleF * 2.0
+                    if innerR > 0.0 then strokeCircle ctx ex ey innerR 1.0 (cssRGBA 255 255 255 (alpha / 2))
             | EntityType.Nuke ->
-                // Nuke: expanding glow + flash
-                let nukeR = max 2 (int (ent.Radius * float Scale))
-                // Outer glow (fading)
-                let glowAlpha = max 20 (180 - int (ent.Radius * 2.0))
-                use glowBrush = new SolidBrush(Color.FromArgb(glowAlpha, 0xFF, 0xFF, 0x80))
-                g.FillEllipse(glowBrush, ex - nukeR, ey - nukeR, nukeR * 2, nukeR * 2)
-                // Core (bright white shrinking)
-                let coreR = max 1 (nukeR / 3)
-                use coreBrush = new SolidBrush(Color.FromArgb(min 255 (glowAlpha + 60), Color.White))
-                g.FillEllipse(coreBrush, ex - coreR, ey - coreR, coreR * 2, coreR * 2)
-                // Ring outline
-                use nukePen = new Pen(Color.FromArgb(glowAlpha, 0xFF, 0xA0, 0x00), float32 Scale)
-                g.DrawEllipse(nukePen, ex - nukeR, ey - nukeR, nukeR * 2, nukeR * 2)
-
+                let nukeR = max 2.0 (ent.Radius * scaleF)
+                let glowA = max 20 (180 - int (ent.Radius * 2.0))
+                fillCircle ctx ex ey nukeR (cssRGBA 255 255 128 glowA)
+                fillCircle ctx ex ey (max 1.0 (nukeR / 3.0)) (cssRGBA 255 255 255 (min 255 (glowA + 60)))
+                strokeCircle ctx ex ey nukeR scaleF (cssRGBA 255 160 0 glowA)
             | EntityType.Blackhole ->
-                // Blackhole: swirling gravity well
-                let bhR = max 3 (int (ent.Radius * float Scale))
-                // Dark core
-                use coreBrush = new SolidBrush(Color.FromArgb(0xE0, 0x05, 0x00, 0x10))
-                g.FillEllipse(coreBrush, ex - bhR, ey - bhR, bhR * 2, bhR * 2)
-                // Swirl arms (4 spiral arms rotating)
-                let swirlAngle = float ent.Timer * 6.0
+                let bhR = max 3.0 (ent.Radius * scaleF)
+                fillCircle ctx ex ey bhR (cssRGBA 5 0 16 224)
+                let swirl = float ent.Timer * 6.0
                 for arm in 0..3 do
-                    let baseAngle = degToRad (swirlAngle + float arm * 90.0)
-                    let armColor = Color.FromArgb(0x80, 0x40, 0x00, 0xC0)
-                    use armPen = new Pen(armColor, float32 Scale)
-                    let r1 = float bhR * 0.4
-                    let r2 = float bhR * 1.2
-                    let r3 = float bhR * 2.0
-                    let x1 = ex + int (cos baseAngle * r1)
-                    let y1 = ey + int (sin baseAngle * r1)
-                    let x2 = ex + int (cos (baseAngle + 0.4) * r2)
-                    let y2 = ey + int (sin (baseAngle + 0.4) * r2)
-                    let x3 = ex + int (cos (baseAngle + 0.8) * r3)
-                    let y3 = ey + int (sin (baseAngle + 0.8) * r3)
-                    g.DrawLine(armPen, x1, y1, x2, y2)
-                    g.DrawLine(armPen, x2, y2, x3, y3)
-                // Outer pull ring
-                let pullR = int (blackholeRadius * float Scale)
-                let pullAlpha = 20 + int (10.0 * sin (float ent.Timer * 0.15))
-                use pullPen = new Pen(Color.FromArgb(pullAlpha, 0x80, 0x40, 0xFF), 1.0f)
-                g.DrawEllipse(pullPen, ex - pullR, ey - pullR, pullR * 2, pullR * 2)
-
+                    let a = degToRad (swirl + float arm * 90.0)
+                    let x1, y1 = ex + cos a * bhR * 0.4, ey + sin a * bhR * 0.4
+                    let x2, y2 = ex + cos (a + 0.4) * bhR * 1.2, ey + sin (a + 0.4) * bhR * 1.2
+                    let x3, y3 = ex + cos (a + 0.8) * bhR * 2.0, ey + sin (a + 0.8) * bhR * 2.0
+                    lineSeg ctx x1 y1 x2 y2 scaleF (cssRGBA 64 0 192 128)
+                    lineSeg ctx x2 y2 x3 y3 scaleF (cssRGBA 64 0 192 128)
+                let pullR = blackholeRadius * scaleF
+                let pullA = 20 + int (10.0 * sin (float ent.Timer * 0.15))
+                strokeCircle ctx ex ey pullR 1.0 (cssRGBA 128 64 255 pullA)
             | EntityType.Mine ->
-                // Mine: pulsing circle, brighter when armed
                 let armed = ent.Timer > 0
                 let pulse = if armed then 0.5 + 0.5 * sin (float ent.Timer * 0.2) else 0.3
-                let sz = int (float (4 * Scale) * (0.8 + 0.2 * pulse))
+                let sz = float (4 * Scale) * (0.8 + 0.2 * pulse)
                 let alpha = int (128.0 + 127.0 * pulse)
-                let mColor = if armed then Color.FromArgb(alpha, 0xFF, 0x40, 0x10) else Color.FromArgb(0x80, 0x80, 0x40, 0x10)
-                use mineBrush = new SolidBrush(mColor)
-                g.FillEllipse(mineBrush, ex - sz/2, ey - sz/2, sz, sz)
-                // Cross-hairs on armed mines
+                let c = if armed then cssRGBA 255 64 16 alpha else cssRGBA 128 64 16 128
+                fillCircle ctx ex ey (sz / 2.0) c
                 if armed then
-                    use crossPen = new Pen(Color.FromArgb(alpha, 0xFF, 0xFF, 0x40), 1.0f)
-                    g.DrawLine(crossPen, ex - sz/2, ey, ex + sz/2, ey)
-                    g.DrawLine(crossPen, ex, ey - sz/2, ex, ey + sz/2)
-
+                    lineSeg ctx (ex - sz / 2.0) ey (ex + sz / 2.0) ey 1.0 (cssRGBA 255 255 64 alpha)
+                    lineSeg ctx ex (ey - sz / 2.0) ex (ey + sz / 2.0) 1.0 (cssRGBA 255 255 64 alpha)
             | EntityType.Flame ->
-                // Flame: fading orange-red glow, size grows with timer
                 let fTimer = max 1 (abs ent.Timer)
-                let fSize = max 2 (fTimer * Scale / 3)
+                let fSize = max 2.0 (float fTimer * scaleF / 3.0)
                 let fAlpha = max 40 (220 - fTimer * 3)
                 let r = min 255 (0xFF - fTimer)
                 let gv = max 0 (0x80 - fTimer * 2)
-                use flameBrush = new SolidBrush(Color.FromArgb(fAlpha, r, gv, 0x10))
-                g.FillEllipse(flameBrush, ex - fSize/2, ey - fSize/2, fSize, fSize)
-                // Bright core
-                let coreS = max 1 (fSize / 3)
-                use coreB = new SolidBrush(Color.FromArgb(min 255 (fAlpha + 30), 0xFF, 0xC0, 0x40))
-                g.FillEllipse(coreB, ex - coreS/2, ey - coreS/2, coreS, coreS)
-
+                fillCircle ctx ex ey (fSize / 2.0) (cssRGBA r gv 16 fAlpha)
+                fillCircle ctx ex ey (max 0.5 (fSize / 6.0)) (cssRGBA 255 192 64 (min 255 (fAlpha + 30)))
             | EntityType.Heavy ->
-                // Missile/dumbfire: directional shape with exhaust glow
-                let sz = 4 * Scale
-                let c = if ent.WeaponIdx = WeaponType.Missile then Color.FromArgb(0xFF, 0xC0, 0x30)
-                        elif ent.WeaponIdx = WeaponType.AtomWeapon then Color.FromArgb(0x40, 0xFF, 0x40)  // Green glow for atom
-                        else Color.Orange
-                use heavyBrush = new SolidBrush(c)
-                // Draw a directional diamond shape
+                let sz = float (4 * Scale)
+                let c =
+                    if ent.WeaponIdx = WeaponType.Missile then cssRGB 255 192 48
+                    elif ent.WeaponIdx = WeaponType.AtomWeapon then cssRGB 64 255 64
+                    else cssRGB 255 165 0
                 let speed = sqrt (ent.VelX * ent.VelX + ent.VelY * ent.VelY) + 0.01
-                let dirX = ent.VelX / speed
-                let dirY = ent.VelY / speed
-                let noseX = ex + int (dirX * float sz)
-                let noseY = ey + int (dirY * float sz)
-                let tailX = ex - int (dirX * float sz * 0.6)
-                let tailY = ey - int (dirY * float sz * 0.6)
-                let sideX = int (-dirY * float sz * 0.4)
-                let sideY = int (dirX * float sz * 0.4)
-                let pts = [| Point(noseX, noseY)
-                             Point(ex + sideX, ey + sideY)
-                             Point(tailX, tailY)
-                             Point(ex - sideX, ey - sideY) |]
-                g.FillPolygon(heavyBrush, pts)
-                // Exhaust glow
-                use exhBrush = new SolidBrush(Color.FromArgb(0x80, 0xFF, 0x60, 0x10))
-                let exhX = ex - int (dirX * float sz * 0.8)
-                let exhY = ey - int (dirY * float sz * 0.8)
-                let exhS = Scale * 2
-                g.FillEllipse(exhBrush, exhX - exhS/2, exhY - exhS/2, exhS, exhS)
-
+                let dx, dy = ent.VelX / speed, ent.VelY / speed
+                let noseX, noseY = ex + dx * sz, ey + dy * sz
+                let tailX, tailY = ex - dx * sz * 0.6, ey - dy * sz * 0.6
+                let sideX, sideY = -dy * sz * 0.4, dx * sz * 0.4
+                fillPoly ctx [ (noseX, noseY); (ex + sideX, ey + sideY); (tailX, tailY); (ex - sideX, ey - sideY) ] c
+                fillCircle ctx (ex - dx * sz * 0.8) (ey - dy * sz * 0.8) scaleF (cssRGBA 255 96 16 128)
             | EntityType.EMP ->
-                // EMP: oscillating purple-white sparkle
-                let empR = max 2 (int (ent.Radius * float Scale))
-                let empAlpha = 140 + int (80.0 * sin (float ent.Timer * 0.3))
-                use empBrush = new SolidBrush(Color.FromArgb(empAlpha, 0xC0, 0x40, 0xFF))
-                g.FillEllipse(empBrush, ex - empR, ey - empR, empR * 2, empR * 2)
-                // Sparkle cross
-                let sparkLen = empR + Scale
-                use sparkPen = new Pen(Color.FromArgb(empAlpha, 0xFF, 0xFF, 0xFF), 1.0f)
-                let sparkAngle = float ent.Timer * 8.0
-                let sr = degToRad sparkAngle
-                let sx1 = ex + int (cos sr * float sparkLen)
-                let sy1 = ey + int (sin sr * float sparkLen)
-                let sx2 = ex - int (cos sr * float sparkLen)
-                let sy2 = ey - int (sin sr * float sparkLen)
-                g.DrawLine(sparkPen, sx1, sy1, sx2, sy2)
+                let empR = max 2.0 (ent.Radius * scaleF)
+                let empA = 140 + int (80.0 * sin (float ent.Timer * 0.3))
+                fillCircle ctx ex ey empR (cssRGBA 192 64 255 empA)
+                let sparkLen = empR + scaleF
+                let sr = degToRad (float ent.Timer * 8.0)
+                lineSeg ctx (ex + cos sr * sparkLen) (ey + sin sr * sparkLen) (ex - cos sr * sparkLen) (ey - sin sr * sparkLen) 1.0 (cssRGBA 255 255 255 empA)
                 let sr2 = sr + Math.PI / 2.0
-                let sx3 = ex + int (cos sr2 * float sparkLen)
-                let sy3 = ey + int (sin sr2 * float sparkLen)
-                let sx4 = ex - int (cos sr2 * float sparkLen)
-                let sy4 = ey - int (sin sr2 * float sparkLen)
-                g.DrawLine(sparkPen, sx3, sy3, sx4, sy4)
-
+                lineSeg ctx (ex + cos sr2 * sparkLen) (ey + sin sr2 * sparkLen) (ex - cos sr2 * sparkLen) (ey - sin sr2 * sparkLen) 1.0 (cssRGBA 255 255 255 empA)
             | EntityType.Laser ->
-                // Laser: elongated red line in direction of travel
                 let speed = sqrt (ent.VelX * ent.VelX + ent.VelY * ent.VelY) + 0.01
-                let dirX = ent.VelX / speed
-                let dirY = ent.VelY / speed
-                let laserLen = 6 * Scale
-                let lx2 = ex - int (dirX * float laserLen)
-                let ly2 = ey - int (dirY * float laserLen)
-                use lPen = new Pen(laserColor, float32 (Scale + 1))
-                g.DrawLine(lPen, ex, ey, lx2, ly2)
-                // Bright tip
-                g.FillEllipse(cachedLaserTipBrush, ex - Scale, ey - Scale, Scale * 2, Scale * 2)
-
+                let dx, dy = ent.VelX / speed, ent.VelY / speed
+                let laserLen = float (6 * Scale)
+                lineSeg ctx ex ey (ex - dx * laserLen) (ey - dy * laserLen) (scaleF + 1.0) laserColor
+                fillCircle ctx ex ey scaleF (cssRGB 255 128 128)
             | EntityType.Ricochet ->
-                // Ricochet: cyan with bounce count indicator
-                let rSize = 2 * Scale
                 let bounce = ent.SubType
                 let rAlpha = max 100 (255 - bounce * 50)
-                use rBrush = new SolidBrush(Color.FromArgb(rAlpha, 0x00, 0xFF, 0xFF))
-                g.FillEllipse(rBrush, ex - rSize/2, ey - rSize/2, rSize, rSize)
-                // Fading trail dot
-                let trailX = ex - int (ent.VelX * float Scale)
-                let trailY = ey - int (ent.VelY * float Scale)
-                use trailBrush = new SolidBrush(Color.FromArgb(rAlpha / 3, 0x00, 0xFF, 0xFF))
-                g.FillEllipse(trailBrush, trailX - Scale/2, trailY - Scale/2, Scale, Scale)
-
+                fillCircle ctx ex ey scaleF (cssRGBA 0 255 255 rAlpha)
+                fillCircle ctx (ex - ent.VelX * scaleF) (ey - ent.VelY * scaleF) (scaleF / 2.0) (cssRGBA 0 255 255 (rAlpha / 3))
             | EntityType.Exploding ->
-                // Dirtclod: brown-ish lobbed projectile
-                let dSize = 3 * Scale
-                g.FillEllipse(cachedDirtclodBrush, ex - dSize/2, ey - dSize/2, dSize, dSize)
-                // Arc trail particles (little dots behind)
-                let tx = ex - int (ent.VelX * float Scale * 0.5)
-                let ty = ey - int (ent.VelY * float Scale * 0.5)
-                g.FillEllipse(cachedDirtclodTrailBrush, tx - Scale/2, ty - Scale/2, Scale, Scale)
-
+                fillCircle ctx ex ey (1.5 * scaleF) (cssRGB 139 96 32)
+                fillCircle ctx (ex - ent.VelX * scaleF * 0.5) (ey - ent.VelY * scaleF * 0.5) (scaleF / 2.0) (cssRGBA 96 64 16 128)
             | EntityType.Shrapnel ->
-                // Shrapnel: tiny gray dots
-                use sBrush = new SolidBrush(Color.FromArgb(max 60 (200 - ent.Timer * 5), Color.Gray))
-                g.FillRectangle(sBrush, ex - Scale/2, ey - Scale/2, Scale, Scale)
-
+                fillRectC ctx (ex - scaleF / 2.0) (ey - scaleF / 2.0) scaleF scaleF (cssRGBA 128 128 128 (max 60 (200 - ent.Timer * 5)))
             | EntityType.Shield ->
-                // Orbiter/freezer: blue-white spinning
-                let sSize = 4 * Scale
                 let sAngle = float ent.Timer * 5.0
                 let sAlpha = 160 + int (60.0 * sin (degToRad sAngle))
-                use sBrush = new SolidBrush(Color.FromArgb(sAlpha, 0x80, 0xC0, 0xFF))
-                g.FillEllipse(sBrush, ex - sSize/2, ey - sSize/2, sSize, sSize)
-
+                fillCircle ctx ex ey (2.0 * scaleF) (cssRGBA 128 192 255 sAlpha)
             | _ ->
-                // Default bullet rendering
-                let size = 2 * Scale
-                g.FillEllipse(cachedBulletBrush, ex - size/2, ey - size/2, size, size)
+                fillCircle ctx ex ey scaleF bulletColor
 
-    // Draw particles (death debris, explosion fragments)
+    // ── Particles ──
     for part in gs.Particles do
-        let px = toScreenX part.X
-        let py = toScreenY part.Y
-        if px > vx - 5 && px < vx + vw + 5 && py > vy - 5 && py < vy + gameH + 5 then
+        let px, py = toX part.X, toY part.Y
+        if px > fvx - 5.0 && px < fvx + fvw + 5.0 && py > fvy - 5.0 && py < fvy + fgameH + 5.0 then
             let alpha = min 255 (part.Life * 8)
-            let c = playerColors[part.Color % 4]
-            use brush = new SolidBrush(Color.FromArgb(alpha, c))
-            let sz = max 1 (Scale * part.Life / 10)
-            g.FillRectangle(brush, px - sz/2, py - sz/2, sz, sz)
+            let (r, g, b) = playerRGB[part.Color % 4]
+            let sz = max 1.0 (scaleF * float part.Life / 10.0)
+            fillRectC ctx (px - sz / 2.0) (py - sz / 2.0) sz sz (cssRGBA r g b alpha)
 
-    // Draw players (all visible players in this viewport)
-    for i in 0..gs.NumPlayers-1 do
+    // ── Players (ships) ──
+    for i in 0 .. gs.NumPlayers - 1 do
         let other = gs.Players[i]
         if other.Alive then
-            let ox = toScreenX (other.PosX / PositionScale)
-            let oy = toScreenY (other.PosY / PositionScale)
-            if ox > vx - 20 && ox < vx + vw + 20 && oy > vy - 20 && oy < vy + gameH + 20 then
-                // Ship body (triangle pointing in direction of travel)
+            let ox, oy = toX (other.PosX / PositionScale), toY (other.PosY / PositionScale)
+            if ox > fvx - 20.0 && ox < fvx + fvw + 20.0 && oy > fvy - 20.0 && oy < fvy + fgameH + 20.0 then
                 let rad = degToRad (other.Angle + 90.0)
                 let shipSize = float (5 * Scale)
-                let nosX = ox + int (cos rad * shipSize)
-                let nosY = oy - int (sin rad * shipSize)
-                let rearRad1 = rad + Math.PI * 0.75
-                let rearRad2 = rad - Math.PI * 0.75
-                let r1x = ox + int (cos rearRad1 * shipSize * 0.7)
-                let r1y = oy - int (sin rearRad1 * shipSize * 0.7)
-                let r2x = ox + int (cos rearRad2 * shipSize * 0.7)
-                let r2y = oy - int (sin rearRad2 * shipSize * 0.7)
-                let pts = [| Point(nosX, nosY); Point(r1x, r1y); Point(r2x, r2y) |]
-                g.FillPolygon(cachedPlayerBrushes[i % 4], pts)
-                g.DrawPolygon(cachedPlayerDarkPens[i % 4], pts)
+                let nosX, nosY = ox + cos rad * shipSize, oy - sin rad * shipSize
+                let r1 = rad + Math.PI * 0.75
+                let r2 = rad - Math.PI * 0.75
+                let pts =
+                    [ (nosX, nosY)
+                      (ox + cos r1 * shipSize * 0.7, oy - sin r1 * shipSize * 0.7)
+                      (ox + cos r2 * shipSize * 0.7, oy - sin r2 * shipSize * 0.7) ]
+                fillPoly ctx pts playerColors[i % 4]
+                strokePoly ctx pts 1.0 playerDarkColors[i % 4]
 
-                // Thrust flame (when UP key held)
                 if other.KeyUp then
-                    let thrustRad = rad + Math.PI
-                    let flLen = float (3 * Scale) + float (gs.GameTick % 3) * float Scale
-                    let fx = ox + int (cos thrustRad * flLen)
-                    let fy = oy - int (sin thrustRad * flLen)
-                    g.FillEllipse(cachedThrustBrush, fx - Scale, fy - Scale, Scale * 2, Scale * 2)
+                    let tRad = rad + Math.PI
+                    let flLen = float (3 * Scale) + float (gs.GameTick % 3) * scaleF
+                    fillCircle ctx (ox + cos tRad * flLen) (oy - sin tRad * flLen) scaleF thrustColor
 
-                // Shield bubble
                 if other.Flags.HasFlag(PlayerFlags.Shield) then
-                    let sr = 7 * Scale
-                    g.DrawEllipse(cachedShieldPen, ox - sr, oy - sr, sr * 2, sr * 2)
+                    strokeCircle ctx ox oy (float (7 * Scale)) scaleF shieldColor
 
-                // Stun effect (spinning stars)
                 if other.Flags.HasFlag(PlayerFlags.Stunned) then
                     for s in 0..2 do
                         let sRad = degToRad (other.AnimAngle + float s * 120.0)
-                        let sx = ox + int (cos sRad * float (6 * Scale))
-                        let sy = oy - int (sin sRad * float (6 * Scale))
-                        g.FillEllipse(cachedEmpStarBrush, sx - Scale/2, sy - Scale/2, Scale, Scale)
+                        fillCircle ctx (ox + cos sRad * float (6 * Scale)) (oy - sin sRad * float (6 * Scale)) (scaleF / 2.0) empColor
 
-                // Invincibility flash
                 if other.InvTimer > 0 && other.InvTimer % 4 < 2 then
-                    use flashPen = new Pen(Color.White, float32 Scale)
-                    g.DrawEllipse(flashPen, ox - 6*Scale, oy - 6*Scale, 12*Scale, 12*Scale)
+                    strokeCircle ctx ox oy (float (6 * Scale)) scaleF "rgb(255,255,255)"
 
-    // ─── Minimap (top-right corner of each viewport) ──────────────
-    let mmW = min 80 (vw / 5)   // minimap pixel size
-    let mmH = int (float mmW * ArenaHeight / ArenaWidth)
-    let mmX = vx + vw - mmW - 4
-    let mmY = vy + 4
-    let mmScaleX = float mmW / ArenaWidth
-    let mmScaleY = float mmH / ArenaHeight
-
-    // Background
-    g.FillRectangle(cachedMmBg, mmX, mmY, mmW, mmH)
-
-    // Terrain preview on minimap
+    // ── Minimap (top-right of viewport) ──
+    let mmW = float (min 80 (vw / 5))
+    let mmH = mmW * ArenaHeight / ArenaWidth
+    let mmX = fvx + fvw - mmW - 4.0
+    let mmY = fvy + 4.0
+    fillRectC ctx mmX mmY mmW mmH (cssRGBA 8 8 16 160)
     match gs.Level with
     | Some level ->
-        let tbmp = getTerrainBitmap level gs.TerrainDirty
-        let prevInterp = g.InterpolationMode
-        g.InterpolationMode <- InterpolationMode.NearestNeighbor
-        g.DrawImage(tbmp, Rectangle(mmX, mmY, mmW, mmH),
-                    Rectangle(0, 0, MapWidth, MapHeight), GraphicsUnit.Pixel)
-        g.InterpolationMode <- prevInterp
+        let tcanvas = getTerrainCanvas level gs.TerrainDirty
+        drawImage9 ctx tcanvas 0.0 0.0 (float MapWidth) (float MapHeight) mmX mmY mmW mmH
     | None ->
-        // Walls on minimap (no-terrain mode only)
         for w in arenaWalls do
-            let mwx = mmX + int (w.X * mmScaleX)
-            let mwy = mmY + int (w.Y * mmScaleY)
-            let mww = max 1 (int (w.W * mmScaleX))
-            let mwh = max 1 (int (w.H * mmScaleY))
-            g.FillRectangle(cachedMmWallBrush, mwx, mwy, mww, mwh)
-
-    g.DrawRectangle(cachedMmBorder, mmX, mmY, mmW, mmH)
-
-    // Entities on minimap (just dots for active ones)
+            fillRectC ctx (mmX + w.X * mmW / ArenaWidth) (mmY + w.Y * mmH / ArenaHeight)
+                (max 1.0 (w.W * mmW / ArenaWidth)) (max 1.0 (w.H * mmH / ArenaHeight)) (cssRGBA 96 96 128 128)
+    setStroke ctx (cssRGBA 64 64 96 128)
+    setLineWidth ctx 1.0
+    strokeRectJs ctx mmX mmY mmW mmH
+    let mmScaleX = mmW / ArenaWidth
+    let mmScaleY = mmH / ArenaHeight
     for ent in gs.Entities do
-        let mex = mmX + int (ent.X * mmScaleX)
-        let mey = mmY + int (ent.Y * mmScaleY)
+        let mex, mey = mmX + ent.X * mmScaleX, mmY + ent.Y * mmScaleY
         if mex >= mmX && mex <= mmX + mmW && mey >= mmY && mey <= mmY + mmH then
             let mc =
                 match ent.EType with
-                | EntityType.Nuke | EntityType.Expanding -> Color.White
-                | EntityType.Blackhole -> Color.Purple
-                | EntityType.Mine -> Color.FromArgb(0xFF, 0x80, 0x20)
-                | EntityType.Flame -> Color.FromArgb(0xFF, 0x60, 0x10)
-                | _ -> Color.FromArgb(0xA0, 0xA0, 0xA0)
-            use meBrush = new SolidBrush(mc)
-            g.FillRectangle(meBrush, mex, mey, 1, 1)
-
-    // Players on minimap
-    for i in 0..gs.NumPlayers-1 do
+                | EntityType.Nuke | EntityType.Expanding -> "rgb(255,255,255)"
+                | EntityType.Blackhole -> "rgb(160,32,240)"
+                | EntityType.Mine -> "rgb(255,128,32)"
+                | EntityType.Flame -> "rgb(255,96,16)"
+                | _ -> "rgb(160,160,160)"
+            fillRectC ctx mex mey 1.0 1.0 mc
+    for i in 0 .. gs.NumPlayers - 1 do
         let other = gs.Players[i]
         if other.Alive then
-            let mpx = mmX + int (other.PosX / PositionScale * mmScaleX)
-            let mpy = mmY + int (other.PosY / PositionScale * mmScaleY)
-            use mpBrush = new SolidBrush(playerColors[i % 4])
-            g.FillRectangle(mpBrush, mpx - 1, mpy - 1, 3, 3)
+            fillRectC ctx (mmX + other.PosX / PositionScale * mmScaleX - 1.0) (mmY + other.PosY / PositionScale * mmScaleY - 1.0) 3.0 3.0 playerColors[i % 4]
+    // Camera rect
+    setStroke ctx (playerRGBA playerIdx 96)
+    setLineWidth ctx 1.0
+    strokeRectJs ctx (mmX + camX * mmScaleX) (mmY + camY * mmScaleY) (float vw / effScale * mmScaleX) (float gameH / effScale * mmScaleY)
 
-    // Camera view rect on minimap
-    let cvx = mmX + int (camX * mmScaleX)
-    let cvy = mmY + int (camY * mmScaleY)
-    let cvw = int (float vw / effectiveScaleF * mmScaleX)
-    let cvh = int (float gameH / effectiveScaleF * mmScaleY)
-    use cvPen = new Pen(Color.FromArgb(0x60, playerColors[playerIdx % 4]), 1.0f)
-    g.DrawRectangle(cvPen, cvx, cvy, cvw, cvh)
-
-    // ─── HUD bar at bottom ─────────────────────────────────────────
-    g.ResetClip()
-    g.SetClip(Rectangle(vx, vy + gameH, vw, hudH))
-    g.FillRectangle(cachedHudBgBrush, vx, vy + gameH, vw, hudH)
-
-    let hudY = vy + gameH + 2
-    let specialName = (getWeapon p.SpecialWeapon).Name
-
-    // Player name and weapon
-    let name = if p.IsCpu then $"CPU{playerIdx + 1}" else $"P{playerIdx + 1}"
-    g.DrawString(name, cachedHudFont, cachedPlayerBrushes[playerIdx % 4], float32 (vx + 4), float32 hudY)
-
-    // Health bar
-    let healthPct = max 0.0 (float p.Health / float FullHealth)  // 1.0 = full, 0.0 = dead
-    let barW = vw / 3
-    let barH = 8
-    let barX = vx + 30
-    let barY = hudY + 2
-    g.FillRectangle(cachedHealthBarBg, barX, barY, barW, barH)
-    let healthColor =
-        if healthPct > 0.6 then Color.LimeGreen
-        elif healthPct > 0.3 then Color.Yellow
-        else Color.Red
-    use healthBrush = new SolidBrush(healthColor)
-    g.FillRectangle(healthBrush, barX, barY, int (float barW * healthPct), barH)
-
-    // Cannon (main) + special weapon
-    let info = $"CANNON  |  {specialName} [{p.Ammo}]"
-    g.DrawString(info, cachedHudFont, cachedWhiteBrush, float32 (vx + 4), float32 (hudY + 14))
-
-    // Kill/Death count
-    let kd = $"K:{p.KillCount} D:{p.DeathCount}"
-    g.DrawString(kd, cachedHudFont, cachedWhiteBrush, float32 (vx + barX + barW + 8), float32 (hudY + 2))
-
-    // Status indicators
+    // ── DEAD overlay (within game clip so it covers the play area) ──
     if not p.Alive then
-        use deadBrush = new SolidBrush(Color.FromArgb(0xA0, 0, 0, 0))
-        g.FillRectangle(deadBrush, vx, vy, vw, gameH)
-        g.DrawString("DEAD", cachedBigFont, cachedRedBrush,
-                     float32 (vx + vw/2 - 30), float32 (vy + gameH/2 - 10))
+        fillRectC ctx fvx fvy fvw fgameH (cssRGBA 0 0 0 160)
+        drawText ctx "DEAD" (fvx + fvw / 2.0 - 30.0) (fvy + fgameH / 2.0 - 10.0) bigFont "rgb(255,0,0)"
 
-    g.ResetClip()
+    restore ctx  // end game-area clip
 
-// ─── Draw viewport border ──────────────────────────────────────────────
+    // ── HUD bar (separate clip) ──
+    clipRect ctx fvx (fvy + fgameH) fvw (float hudH)
+    fillRectC ctx fvx (fvy + fgameH) fvw (float hudH) hudBgColor
+    let hudY = fvy + fgameH + 2.0
+    let specialName = (getWeapon p.SpecialWeapon).Name
+    let name = if p.IsCpu then $"CPU{playerIdx + 1}" else $"P{playerIdx + 1}"
+    drawText ctx name (fvx + 4.0) hudY playerColors[playerIdx % 4] hudFont
+    let healthPct = max 0.0 (float p.Health / float FullHealth)
+    let barW = float (vw / 3)
+    let barX = fvx + 30.0
+    let barY = hudY + 2.0
+    fillRectC ctx barX barY barW 8.0 healthBgColor
+    let healthColor =
+        if healthPct > 0.6 then "rgb(50,205,50)"
+        elif healthPct > 0.3 then "rgb(255,255,0)"
+        else "rgb(255,0,0)"
+    fillRectC ctx barX barY (barW * healthPct) 8.0 healthColor
+    drawText ctx $"CANNON  |  {specialName} [{p.Ammo}]" (fvx + 4.0) (hudY + 14.0) hudFont "rgb(255,255,255)"
+    if p.OnBase && p.Alive then
+        drawText ctx "BASE" (fvx + fvw - 36.0) (hudY + 14.0) hudFont "rgb(50,205,50)"
+    drawText ctx $"K:{p.KillCount} D:{p.DeathCount}" (barX + barW + 8.0) (hudY + 2.0) hudFont "rgb(255,255,255)"
+    restore ctx
 
-let drawBorder (g: Graphics) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
-    use pen = new Pen(playerDarkColors[idx % 4], 2.0f)
-    g.DrawRectangle(pen, vx, vy, vw - 1, vh - 1)
+// ─── Viewport border ─────────────────────────────────────────────────────
+let drawBorder (ctx: obj) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
+    setStroke ctx playerDarkColors[idx % 4]
+    setLineWidth ctx 2.0
+    strokeRectJs ctx (float vx + 1.0) (float vy + 1.0) (float vw - 2.0) (float vh - 2.0)
 
 // ─── Render full frame ─────────────────────────────────────────────────
-
-let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
-    g.SmoothingMode <- SmoothingMode.None
-    g.InterpolationMode <- InterpolationMode.NearestNeighbor
-
-    // Clear
-    use clearBrush = new SolidBrush(Color.Black)
-    g.FillRectangle(clearBrush, 0, 0, windowW, windowH)
+let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
+    setSmoothing ctx false
+    setBaseline ctx "top"
+    fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
 
     let layouts = viewportLayout gs.NumPlayers windowW windowH
-
-    for i in 0..gs.NumPlayers-1 do
+    for i in 0 .. gs.NumPlayers - 1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
-            drawPlayerView g gs i vx vy vw vh
-            drawBorder g vx vy vw vh i
+            drawPlayerView ctx gs i vx vy vw vh
+            drawBorder ctx vx vy vw vh i
 
-    // Title bar overlay
     if not gs.RoundActive then
-        use overlayBrush = new SolidBrush(Color.FromArgb(0xC0, 0, 0, 0))
-        g.FillRectangle(overlayBrush, 0, 0, windowW, windowH)
-        use titleFont = new Font("Consolas", 18.0f, FontStyle.Bold)
-        use subFont = new Font("Consolas", 10.0f)
-        use keyFont = new Font("Consolas", 9.0f)
-        use white = new SolidBrush(Color.White)
-        use gray = new SolidBrush(Color.FromArgb(0xC0, 0xC0, 0xC0))
-        use yellow = new SolidBrush(Color.FromArgb(0xFF, 0xFF, 0x80))
-        let cx = float32 (windowW / 2 - 200)
-        let mutable y = float32 (windowH / 2 - 80)
-        g.DrawString("FsRocket Physics", titleFont, white, cx, y)
-        y <- y + 30.0f
+        fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 192)
+        let cx = float (windowW / 2 - 230)
+        let mutable y = float (windowH / 2 - 90)
+        drawText ctx "FsRocket" cx y titleFont "rgb(255,255,255)"
+        y <- y + 34.0
         let levelName = match gs.Level with Some lv -> lv.Name | None -> "No Terrain"
         let cpuText = if gs.CpuCount > 0 then $"  |  CPU: {gs.CpuCount}" else ""
-        g.DrawString($"Level: {levelName}  |  Players: {gs.NumPlayers}{cpuText}", subFont, gray, cx, y)
-        y <- y + 24.0f
-        g.DrawString("Press SPACE to start  |  F1-F4: weapon  |  1-4: players  |  ESC: quit", subFont, gray, cx, y)
-        y <- y + 16.0f
-        g.DrawString("F5: prev level  |  F6: next level  |  F7/F8: CPU players  |  F11: Full-screen", subFont, gray, cx, y)
-        y <- y + 28.0f
-        g.DrawString("Controls:", subFont, yellow, cx, y)
-        y <- y + 18.0f
-        g.DrawString("P1 RED:    Arrows/NumPad = Thrust/Turn    RShift = Fire    Down = Brake", keyFont, white, cx, y)
-        y <- y + 15.0f
-        g.DrawString("P2 GREEN:  W/A/D = Thrust/Turn            Tab = Fire       S = Brake", keyFont, white, cx, y)
-        y <- y + 15.0f
-        g.DrawString("P3 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Brake", keyFont, white, cx, y)
+        drawText ctx $"Level: {levelName}  |  Players: {gs.NumPlayers}{cpuText}" cx y subFont "rgb(192,192,192)"
+        y <- y + 24.0
+        drawText ctx "Press SPACE to start  |  1-4: players  |  ESC: reset" cx y subFont "rgb(192,192,192)"
+        y <- y + 18.0
+        drawText ctx "F5/F6: level   F7/F8: CPU players" cx y subFont "rgb(192,192,192)"
+        y <- y + 18.0
+        let weaponRule =
+            if gs.WeaponSwitchOnlyOnBase
+            then "Weapon switch (P1=9 P2=1 P3=6): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=9 P2=1 P3=6): anytime   [F9 to require a base]"
+        drawText ctx weaponRule cx y subFont "rgb(144,192,255)"
+        y <- y + 28.0
+        drawText ctx "Controls:" cx y subFont "rgb(255,255,128)"
+        y <- y + 18.0
+        drawText ctx "P1: Arrows/NumPad = Thrust/Turn   RShift = Fire   Down = Special   9 = Weapon" cx y keyFont "rgb(255,255,255)"
+        y <- y + 15.0
+        drawText ctx "P2: W/A/D = Thrust/Turn   Tab = Fire   S = Special   1 = Weapon" cx y keyFont "rgb(255,255,255)"
+        y <- y + 15.0
+        drawText ctx "P3: I/J/L = Thrust/Turn   B = Fire   K = Special   6 = Weapon" cx y keyFont "rgb(255,255,255)"

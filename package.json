@@ -1,0 +1,14 @@
+{
+  "name": "fsrocket.web",
+  "version": "1.0.0",
+  "description": "FsRocket — AUTS-style split-screen rocket game, F# + Fable + Canvas",
+  "type": "module",
+  "scripts": {
+    "dev": "dotnet fable watch --run npx vite",
+    "build": "dotnet fable && npx vite build"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^8.0.0"
+  }
+}

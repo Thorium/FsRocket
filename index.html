@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>FsRocket</title>
+    <link href="./styles.css" rel="stylesheet"/>
+</head>
+<body>
+<div id="root">
+    <canvas id="screen" width="960" height="600" aria-label="FsRocket game screen" role="img"></canvas>
+    <p class="hint">
+        Press <b>SPACE</b> to start &middot; <b>1–4</b> players &middot;
+        <b>F5/F6</b> level &middot; <b>F7/F8</b> CPU &middot; <b>F9</b> weapon-on-base rule
+    </p>
+    <label class="upload" for="level-file">
+        Upload a .LEV map
+        <input accept=".LEV,.lev" id="level-file" type="file">
+    </label>
+    <a class="github-link" href="https://github.com/" rel="noopener noreferrer" target="_blank">FsRocket — F# + Fable</a>
+</div>
+<script src="./Program.fs.js" type="module"></script>
+</body>
+</html>

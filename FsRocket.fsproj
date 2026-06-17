@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
+  <!-- Shared, framework-agnostic game logic + the Fable (browser) front-end.
+       Renderer.fs draws to an HTML5 canvas; Program.fs is the browser entry point.
+       The desktop (WinForms / MonoGame) front-ends live on their own branches. -->
   <ItemGroup>
     <Compile Include="Physics.fs" />
     <Compile Include="Terrain.fs" />
@@ -17,9 +19,17 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
 
-  <!-- Copy all .LEV level files to the output directory -->
   <ItemGroup>
-    <None Include="*.LEV" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Fable.Core" Version="5.0.0" />
+    <PackageReference Include="Fable.Browser.Dom" Version="2.20.0" />
+  </ItemGroup>
+
+  <!-- Web assets (for IDE visibility; Vite consumes them directly) -->
+  <ItemGroup>
+    <Content Include="index.html" />
+    <Content Include="styles.css" />
+    <None Include="package.json" />
+    <None Include="vite.config.ts" />
   </ItemGroup>
 
 </Project>

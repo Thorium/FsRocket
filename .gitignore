@@ -247,3 +247,8 @@ docs/content/core/northwindEF.db
 TestResult.xml
 /tests/SqlProvider.Core.Tests/MsSqlSsdt/MsSqlSsdt.Tests/AdventureWorks_SSDT/AdventureWorks_SSDT.jfm
 .fsdocs/
+# ─── Fable / Web build artifacts ───
+node_modules/
+dist/
+fable_modules/
+*.fs.js
