@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>FsRocketEditor</AssemblyName>
+    <RootNamespace>FsRocketEditor</RootNamespace>
+    <!-- Allow compile-checking the project on non-Windows hosts (CI/dev box).
+         No effect when building on Windows. -->
+    <EnableWindowsTargeting Condition="'$(OS)' != 'Windows_NT'">true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shared, unchanged game sources (the .LEV format + constants). -->
+    <Compile Include="..\Physics.fs" />
+    <Compile Include="..\Terrain.fs" />
+    <!-- Editor-only sources. -->
+    <Compile Include="EditorCore.fs" />
+    <Compile Include="EditorForm.fs" />
+  </ItemGroup>
+
+  <!-- Make the sample level available next to the editor for quick testing. -->
+  <ItemGroup>
+    <None Include="..\*.LEV" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

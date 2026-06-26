@@ -97,6 +97,59 @@ let decompressPage (src: byte array) (srcOffset: int) (dest: byte array) (destOf
 
     si  // Return new source offset (where we stopped reading)
 
+// ─── RLE Compression (exact inverse of decompressPage) ─────────────────
+//
+// The decoder treats "the byte I just wrote equals the byte before it" as a
+// run trigger and reads a following run-count byte. So whenever two equal bytes
+// land next to each other (and we are not on a fresh `firstFlag` boundary), the
+// encoder is OBLIGED to emit a run token — there is no alternative encoding.
+// That makes compression fully deterministic and lossless by construction:
+//
+//   • Emit the current byte `v`.
+//   • If `v` equals the previous emitted byte (and not firstFlag), it is a run:
+//     emit a run-count byte = (k + 1) where k is how many further copies of `v`
+//     follow. The decoder then writes those k extra copies. After a run the
+//     decoder resets firstFlag, so the byte after a run is always a fresh literal
+//     even if it equals `v` — we mirror that here.
+//   • runCount is a single byte, so k is capped at 254 (runCount <= 255); longer
+//     runs are split into multiple tokens, exactly as the decoder would re-expand.
+
+let compressPage (dest: byte array) (destOffset: int) (out: ResizeArray<byte>) : unit =
+    let destEnd = destOffset + PageSize
+    let mutable di = destOffset
+    let mutable firstFlag = true
+
+    while di < destEnd do
+        let prev = if firstFlag then 0xFFFF else int dest[di - 1]
+        firstFlag <- false
+        let v = int dest[di]
+        out.Add(byte v)
+
+        if v = prev then
+            // Count further identical bytes after the trigger, capped so the
+            // run-count byte stays within 0..255 (k+1 <= 255  ⇒  k <= 254).
+            let mutable k = 0
+            while di + 1 + k < destEnd && int dest[di + 1 + k] = v && k < 254 do
+                k <- k + 1
+            out.Add(byte (k + 1))   // runCount: decoder writes k extra copies
+            di <- di + k            // + the trailing `di <- di + 1` below = trigger + runCount
+            firstFlag <- true       // next byte is a fresh literal (matches decoder)
+
+        di <- di + 1
+
+/// Compress a 320x400 pixel array + viewport words back into .LEV bytes.
+/// Round-trips with decompressLevel: decompressLevel (compressLevel px vp) = (px, vp).
+let compressLevel (pixels: byte array) (viewports: int * int * int * int) : byte array =
+    let out = ResizeArray<byte>(pixels.Length / 2 + 8)
+    compressPage pixels 0 out          // page 1: rows 0..199
+    compressPage pixels PageSize out   // page 2: rows 200..399
+    let v0, v1, v2, v3 = viewports
+    out.AddRange(BitConverter.GetBytes(uint16 v0))
+    out.AddRange(BitConverter.GetBytes(uint16 v1))
+    out.AddRange(BitConverter.GetBytes(uint16 v2))
+    out.AddRange(BitConverter.GetBytes(uint16 v3))
+    out.ToArray()
+
 /// Decompress a .LEV file into a 320x400 pixel array + 4 viewport words
 let decompressLevel (data: byte array) : byte array * (int * int * int * int) =
     // Last 8 bytes are 4 LE uint16 viewport words
@@ -227,6 +280,21 @@ let loadLevel (filePath: string) : LevelData =
     { Pixels = pixels
       Viewports = viewports
       SpawnPoints = spawns
+      Name = name }
+
+/// Write a level back out as a compressed .LEV file. Spawn points are derived
+/// from the base pixels on load, so only the pixels + viewport words are stored.
+let saveLevel (filePath: string) (level: LevelData) : unit =
+    let bytes = compressLevel level.Pixels level.Viewports
+    File.WriteAllBytes(filePath, bytes)
+
+/// Create a fresh, empty 320x400 level (all VoidColor / flyable sky). The
+/// viewport words default to a neutral full-map rectangle — they are metadata
+/// only and do not affect gameplay.
+let newBlankLevel (name: string) : LevelData =
+    { Pixels = Array.create (MapWidth * MapHeight) VoidColor
+      Viewports = (0, 0, MapWidth - 1, MapHeight - 1)
+      SpawnPoints = [||]
       Name = name }
 
 // ─── Terrain Queries for Game Logic ────────────────────────────────────

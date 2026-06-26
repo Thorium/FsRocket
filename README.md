@@ -40,6 +40,19 @@ dotnet build
 dotnet run
 ```
 
+## Level Editor
+
+A standalone WinForms editor for the `.LEV` terrain maps lives in [`editor/`](editor/README.md):
+
+```
+dotnet run --project editor/FsRocketEditor.fsproj
+```
+
+Paint void/wall/water/base with brush, fill, line and rectangle tools; preview
+spawn points; import an image as terrain; and save back to the original
+RLE-compressed `.LEV` format (byte-for-byte compatible with the game). See
+[editor/README.md](editor/README.md) for the colour conventions and workflow.
+
 ## Tests
 
 ```
