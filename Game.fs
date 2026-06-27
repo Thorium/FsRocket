@@ -52,21 +52,11 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
                         Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->  // DIRTCLOD — lobbed with gravity
-        let rad = degToRad (p.Angle + 90.0)
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Exploding; Owner = ownerIdx; WeaponIdx = WeaponType.Dirtclod }
-        p, [ ent ]
+    | WeaponType.Dirtclod ->  // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
+        p, [ makeProjectile p ownerIdx p.WeaponType ]
 
     | WeaponType.AtomWeapon -> // ATOM WEAPON — travels as heavy projectile, detonates on impact
-        let rad = degToRad (p.Angle + 90.0)
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.AtomWeapon }
-        p, [ ent ]
+        p, [ makeProjectile p ownerIdx p.WeaponType ]
 
     // | WeaponType.Troopers -> // TROOPERS — TODO: deploy ground units that shoot nearby opponents
     //     let ents = [ for off in [ 0.0; 90.0; 180.0; 270.0 ] -> makeProjectileAngled p ownerIdx p.WeaponType off ]
@@ -74,12 +64,7 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
 
     | WeaponType.HellFire -> // HELL FIRE — flame with random spread
         let spread = float (rng.Next 7 - 3)
-        let rad = degToRad (p.Angle + 90.0 + spread)
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Flame; Owner = ownerIdx; WeaponIdx = WeaponType.HellFire }
-        p, [ ent ]
+        p, [ makeProjectileAngled p ownerIdx p.WeaponType spread ]
 
     | WeaponType.Sonicboom -> // SONICBOOM — expanding ring from player position
         let ent = { defaultEntity with
@@ -95,13 +80,8 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
                         Timer = -200; Radius = 8.0; WeaponIdx = WeaponType.ToxicDump }
         p, [ ent ]
 
-    | WeaponType.Missile -> // MISSILE — homing
-        let rad = degToRad (p.Angle + 90.0)
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.Missile }
-        p, [ ent ]
+    | WeaponType.Missile -> // MISSILE — homing (Heavy projectile; homing handled in updateEntity)
+        p, [ makeProjectile p ownerIdx p.WeaponType ]
 
     | WeaponType.Blackhole -> // BLACKHOLE — gravity well
         let ent = { defaultEntity with
@@ -183,11 +163,7 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
 
     | WeaponType.AtomWeapon ->
         // ATOM WEAPON: heavy projectile, detonates on impact
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.AtomWeapon }
-        p, [ ent ]
+        p, [ makeProjectile p ownerIdx sw ]
 
     | WeaponType.RubberBullets ->
         // RUBBER BLTS: single bouncing bullet forward
@@ -203,11 +179,7 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
 
     | WeaponType.Dirtclod ->
         // DIRTCLOD: lobbed with gravity
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Exploding; Owner = ownerIdx; WeaponIdx = WeaponType.Dirtclod }
-        p, [ ent ]
+        p, [ makeProjectile p ownerIdx sw ]
 
     | WeaponType.Headspinner ->
         // HEADSPINNER: EMP/stun shot
@@ -235,11 +207,7 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
 
     | WeaponType.Dumbfire ->
         // DUMBFIRE: fast unguided rocket
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        VelX = cos rad * w.ProjectileSpeed; VelY = -(sin rad) * w.ProjectileSpeed
-                        EType = EntityType.Heavy; Owner = ownerIdx; WeaponIdx = WeaponType.Dumbfire }
-        p, [ ent ]
+        p, [ makeProjectile p ownerIdx sw ]
 
     | _ ->
         // Default: standard forward shot
@@ -273,7 +241,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
             let flags = p.Flags &&& ~~~PlayerFlags.Shield
             let h = if speedDamage > 0 && p.InvTimer = 0 then p.Health - speedDamage else p.Health
             let inv = if speedDamage > 0 && p.InvTimer = 0 then SpawnInvincibilityTicks else p.InvTimer
-            ({ p with PosX = p.PosX; PosY = p.PosY; VelX = 0.0; VelY = 0.0
+            ({ p with VelX = 0.0; VelY = 0.0
                       Flags = flags; Health = h; InvTimer = inv
                       WallHitCount = p.WallHitCount + 1; OnBase = false }, [], [], false)
         else
@@ -1273,41 +1241,31 @@ let gameTick (gs: GameState) : GameState =
     // CPU AI: set key states for computer-controlled players
     let gs = if gs.CpuCount > 0 then cpuAI gs else gs
 
-    let mutable terrainDirty = gs.TerrainDirty
-
     // Update all players — collect new entities and particles
-    let mutable allNewEnts : Entity list = []
-    let mutable allNewParts : Particle list = []
-    let players =
-        gs.Players |> List.mapi (fun i p ->
-            if i < gs.NumPlayers then
-                let (p, newEnts, newParts, tDirty) = updatePlayer gs i
-                allNewEnts <- allNewEnts @ newEnts
-                allNewParts <- allNewParts @ newParts
-                if tDirty then terrainDirty <- true
-                p
-            else p)
+    let playerResults =
+        gs.Players
+        |> List.mapi (fun i p -> if i < gs.NumPlayers then updatePlayer gs i else (p, [], [], false))
+    let players     = playerResults |> List.map     (fun (p, _, _, _) -> p)
+    let allNewEnts  = playerResults |> List.collect (fun (_, e, _, _) -> e)
+    let allNewParts = playerResults |> List.collect (fun (_, _, pt, _) -> pt)
 
-    // Update all entities — collect spawned entities and particles
-    let mutable spawnedEnts : Entity list = []
-    let mutable spawnedParts : Particle list = []
-    let entities =
-        gs.Entities |> List.choose (fun ent ->
-            let (result, newEnts, newParts, tDirty) = updateEntity gs ent
-            spawnedEnts <- spawnedEnts @ newEnts
-            spawnedParts <- spawnedParts @ newParts
-            if tDirty then terrainDirty <- true
-            result)
+    // Update all entities — keep survivors, collect spawned entities and particles
+    let entityResults = gs.Entities |> List.map (updateEntity gs)
+    let survivingEnts = entityResults |> List.choose (fun (result, _, _, _) -> result)
+    let spawnedEnts   = entityResults |> List.collect (fun (_, e, _, _) -> e)
+    let spawnedParts  = entityResults |> List.collect (fun (_, _, pt, _) -> pt)
 
-    // Merge new + spawned entities
-    let entities = entities @ allNewEnts @ spawnedEnts
+    // Terrain is dirty if it already was, or any player/entity update modified it this tick
+    let terrainDirty =
+        gs.TerrainDirty
+        || List.exists (fun (_, _, _, d) -> d) playerResults
+        || List.exists (fun (_, _, _, d) -> d) entityResults
 
-    // Update particles
-    let particles =
-        gs.Particles |> List.choose updateParticle
+    // Merge surviving + newly spawned entities
+    let entities = survivingEnts @ allNewEnts @ spawnedEnts
 
-    // Add new particles
-    let particles = particles @ allNewParts @ spawnedParts
+    // Update particles, then append newly spawned ones
+    let particles = (gs.Particles |> List.choose updateParticle) @ allNewParts @ spawnedParts
 
     // Blackhole pull pass
     let entities, players = applyBlackholePull entities players gs.NumPlayers
