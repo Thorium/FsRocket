@@ -235,9 +235,9 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
             | None -> hitsWall gs.Level pixX pixY 3.0
         let hitsBoundary = px < 0.0 || px > maxX || py < 0.0 || py > maxY
         if hitsTerrain || hitsBoundary then
-            // Terrain contact: clear shield, doubled collision damage (4.8x)
+            // Terrain contact: clear shield, doubled collision damage
             let speed = abs p.VelX + abs velY
-            let speedDamage = int (speed * ShieldKnockbackScale)
+            let speedDamage = int (speed * ShieldCollisionDamageScale)
             let flags = p.Flags &&& ~~~PlayerFlags.Shield
             let h = if speedDamage > 0 && p.InvTimer = 0 then p.Health - speedDamage else p.Health
             let inv = if speedDamage > 0 && p.InvTimer = 0 then SpawnInvincibilityTicks else p.InvTimer
@@ -348,7 +348,10 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 // Base/landing pad: a solid surface that deals NO collision damage.
                 // Resting on it stops the ship and recharges energy; pressing thrust
                 // lifts off again.
-                let healed = if onBase then min FullHealth (p.Health + BaseHealRate) else p.Health
+                let healed =
+                    if onBase && gs.GameTick % BaseHealInterval = 0
+                    then min FullHealth (p.Health + BaseHealRate)
+                    else p.Health
                 if p.KeyUp then
                     // Lifting off: let thrust carry the ship freely.
                     (posX, posY, velX, velY, angle, healed, p.WallHitCount, wallDmgCooldown, false)
@@ -359,7 +362,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                     (p.PosX, restY, 0.0, 0.0, angle, healed, p.WallHitCount, wallDmgCooldown, false)
             elif Terrain.isWall pixel then
                 let speed = abs velX + abs velY
-                let speedDamage = int (speed * NormalKnockbackScale)
+                let speedDamage = int (speed * CollisionDamageScale)
                 let h, whc, wdc =
                     if speedDamage > 0 && wallDmgCooldown = 0 then
                         (p.Health - speedDamage, p.WallHitCount + 1, SpawnInvincibilityTicks)
@@ -401,7 +404,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     let posX, posY, velX, velY, angle, health, wallHitCount, wallDmgCooldown =
         if hitBoundary then
             let boundarySpeed = abs velX + abs velY
-            let speedDamage = int (boundarySpeed * NormalKnockbackScale)
+            let speedDamage = int (boundarySpeed * CollisionDamageScale)
             let h, whc, wdc =
                 if speedDamage > 0 && wallDmgCooldown = 0 then
                     (health - speedDamage, wallHitCount + 1, SpawnInvincibilityTicks)
@@ -838,8 +841,10 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                         | EntityType.Expanding -> ent.Radius
                         | EntityType.Blackhole -> 6.0
                         | EntityType.Flame -> max 2.0 (float ent.Timer * 0.3)
-                        | _ -> 4.0
-                    let playerRadius = 3.0
+                        | _ -> 3.0
+                    // Ship hull radius — kept tight to the triangle so bullets reach
+                    // the sprite before registering, matching player-player collision.
+                    let playerRadius = 2.0
                     let px = p.PosX / PositionScale
                     let py = p.PosY / PositionScale
 
@@ -855,7 +860,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                     if hits then
                         let damage =
                             match ent.EType with
-                            | EntityType.Bullet | EntityType.BulletAlt -> 2
+                            | EntityType.Bullet | EntityType.BulletAlt -> bulletDamage
                             | EntityType.Mine -> if ent.Timer > 0 then 30 else 0
                             | EntityType.EMP -> 0
                             | EntityType.Shield -> 0
@@ -880,14 +885,17 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 if np.Flags.HasFlag(PlayerFlags.Shield) then ShieldKnockbackScale
                                 else NormalKnockbackScale
                             if ent.VelX <> 0.0 || ent.VelY <> 0.0 then
+                                // Divisor is in player-velocity units (world px/tick). The
+                                // heavy blasts fold in PositionScale to stay gentle; plain
+                                // bullets omit it so a hit gives a small but visible nudge.
                                 let kbDiv =
                                     match ent.EType with
-                                    | EntityType.Nuke | EntityType.Expanding -> 1.0
-                                    | EntityType.Heavy -> 2.0
+                                    | EntityType.Nuke | EntityType.Expanding -> 1.0 * PositionScale
+                                    | EntityType.Heavy -> 2.0 * PositionScale
                                     | _ -> BulletKnockbackDiv
                                 np <- { np with
-                                            VelX = np.VelX + ent.VelX / (kbDiv * knockScale * PositionScale)
-                                            VelY = np.VelY + ent.VelY / (kbDiv * knockScale * PositionScale) }
+                                            VelX = np.VelX + ent.VelX / (kbDiv * knockScale)
+                                            VelY = np.VelY + ent.VelY / (kbDiv * knockScale) }
                             else
                                 match ent.EType with
                                 | EntityType.Mine | EntityType.Expanding | EntityType.Nuke ->
@@ -974,16 +982,25 @@ let checkPlayerCollision (players: Player list) (numPlayers: int) : Player list 
                 let y1 = p1.PosY / PositionScale
                 let x2 = p2.PosX / PositionScale
                 let y2 = p2.PosY / PositionScale
-                let collisionDist = 6.0
+                // Hull radius kept tight to the triangle, not its circumscribed
+                // circle — the pointed nose/corners are mostly empty space.
+                let collisionDist = 4.0
                 if collides x1 y1 (collisionDist/2.0) x2 y2 (collisionDist/2.0) then
                     let dx = x2 - x1
                     let dy = y2 - y1
                     let dist = sqrt (dx*dx + dy*dy) + 0.001
                     let nx = dx / dist
                     let ny = dy / dist
-                    let bounce = 0.5
-                    ps[i] <- { p1 with VelX = p1.VelX - nx * bounce; VelY = p1.VelY - ny * bounce }
-                    ps[j] <- { p2 with VelX = p2.VelX + nx * bounce; VelY = p2.VelY + ny * bounce }
+                    // Closing speed along the contact normal (n points p1 -> p2).
+                    let approach = (p2.VelX - p1.VelX) * nx + (p2.VelY - p1.VelY) * ny
+                    // Only resolve while the ships are moving together. Once they are
+                    // separating the impulse is skipped, so it can't re-apply every
+                    // overlapping tick and accumulate into a violent fling.
+                    if approach < 0.0 then
+                        // Equal-mass bounce with restitution 0.5: split the impulse.
+                        let imp = -0.75 * approach
+                        ps[i] <- { p1 with VelX = p1.VelX - nx * imp; VelY = p1.VelY - ny * imp }
+                        ps[j] <- { p2 with VelX = p2.VelX + nx * imp; VelY = p2.VelY + ny * imp }
     Array.toList ps
 
 // ─── Particle Update ───────────────────────────────────────────────────

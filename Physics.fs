@@ -49,6 +49,16 @@ let ShieldKnockbackScale = 4.8
 [<Literal>]
 let NormalKnockbackScale = 2.4
 
+/// Impact-speed multiplier for terrain/boundary collision damage. Kept low so a
+/// crash hurts less than taking direct fire — see [[bulletDamage]].
+[<Literal>]
+let CollisionDamageScale = 1.5
+
+/// Collision damage multiplier while shielded (terrain contact also clears the
+/// shield). Doubled relative to the normal scale, mirroring the knockback ratio.
+[<Literal>]
+let ShieldCollisionDamageScale = 3.0
+
 /// Bullet knockback: velocity / 10
 [<Literal>]
 let BulletKnockbackDiv = 10.0
@@ -107,9 +117,15 @@ let FullHealth = 90
 [<Literal>]
 let DeathThreshold = 0
 
-/// Health recovered per tick while resting on a base/landing pad
+/// Health recovered per heal tick while resting on a base/landing pad
 [<Literal>]
 let BaseHealRate = 1
+
+/// Heal only every Nth game tick while parked on a base. At 36 FPS an interval of
+/// 18 is ~2 HP/sec — a slow trickle that any sustained direct fire easily out-damages,
+/// so a parked ship can still be killed.
+[<Literal>]
+let BaseHealInterval = 18
 
 /// Distance (pixels) below the ship centre scanned for a base bar — the ship
 /// rests with its centre in the void just above the pad surface.
@@ -130,9 +146,10 @@ let MaxExplosions = 10
 
 // ─── Initial Spawn ─────────────────────────────────────────────────────
 
-/// Initial direction at spawn: 90 degrees
+/// Initial direction at spawn: 0 degrees = nose up (thrust/fire/render all use Angle+90
+/// in screen space, so Angle 0 gives the up vector (0,-1)).
 [<Literal>]
-let SpawnDirection = 90.0
+let SpawnDirection = 0.0
 
 // ─── Degrees to Radians helper ─────────────────────────────────────────
 
