@@ -173,7 +173,7 @@ let getWeapon (wt: WeaponType) =
     else weapons[0]
 
 /// Standard bullet damage (entity types $01/$06)
-let bulletDamage = 2
+let bulletDamage = 5
 
 /// Heavy cannon damage formula: 6 - (timer / 4), minimum 1
 let heavyDamage (timer: int) = max 1 (6 - timer / 4)
