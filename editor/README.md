@@ -2,7 +2,7 @@
 
 A standalone WinForms editor for the AUTS `.LEV` terrain maps used by FsRocket.
 It loads, edits, and saves the original RLE-compressed `.LEV` format **byte-for-byte
-compatibly** with the game (the encoder re-produces `CLASSIC.LEV` identically), so
+compatibly** with the game (the encoder round-trips the bundled `.LEV` maps identically), so
 anything you make here drops straight into the game's level list.
 
 ```
@@ -126,7 +126,7 @@ edit freely and decide when to push a level into the game:
   copied map shows up in the level list (switch with `F5`/`F6`) on the next launch.
 
 > Prefer to do it by hand? A `.LEV` is fully self-contained — just copy your saved file
-> into the same folder as the game executable (alongside `CLASSIC.LEV`) and restart the
+> into the same folder as the game executable (alongside the bundled `.LEV` maps) and restart the
 > game. In a source checkout that folder is the repo root, from where the build copies
 > `*.LEV` into the game's output.
 

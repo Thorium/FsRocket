@@ -632,9 +632,39 @@ let drawBorder (g: Graphics) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) 
 
 // ─── Render full frame ─────────────────────────────────────────────────
 
+/// Design (logical) resolution: the game is laid out as if on the original
+/// 960x600 window and zoomed up uniformly to fill the client area, so a
+/// bigger window means bigger pixels — not more visible map (limited
+/// per-viewport visibility is part of the game design).
+let designW = 960.0
+let designH = 600.0
+
+/// Uniform zoom factor from the physical client size. One axis is exactly
+/// the 960x600 design resolution, the other at least that (no letterbox
+/// bars). On very wide screens the logical width would grow enough for a
+/// single-player viewport to reveal the whole 320px-wide map, so above
+/// 2500 physical px the zoom ramps up a bit more (smoothly, no jump at the
+/// threshold) and the level is never shown fully.
+let zoomFor (physW: float) (physH: float) =
+    let zoomBase = min (physW / designW) (physH / designH)
+    let boost = 1.0 + max 0.0 (physW - 2500.0) / 2500.0
+    zoomBase * boost
+
+/// windowW/windowH: the PHYSICAL client size. The whole frame (world, HUD,
+/// minimap, fonts, menu) is drawn in logical coordinates and scaled up by
+/// the zoom transform. At exactly 960x600 the zoom is 1.0 (identity).
 let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
     g.SmoothingMode <- SmoothingMode.None
     g.InterpolationMode <- InterpolationMode.NearestNeighbor
+
+    // Zoom the 960x600 logical layout to the window. SetClip(Rectangle)
+    // below is applied in world (pre-transform) coordinates, so all clipping
+    // keeps working in logical space; pen widths and DrawString sizes scale
+    // with the transform (desired — same as the FableWeb canvas upscale).
+    let zoom = zoomFor (float (max 1 windowW)) (float (max 1 windowH))
+    g.ScaleTransform(float32 zoom, float32 zoom)
+    let windowW = int (float windowW / zoom)
+    let windowH = int (float windowH / zoom)
 
     // Clear
     use clearBrush = new SolidBrush(Color.Black)

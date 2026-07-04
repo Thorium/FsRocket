@@ -20,7 +20,7 @@ You can try the Fable version online here: https://thorium.github.io/FsRocket/
 
 - **1-4 player local multiplayer** with split-screen viewports on a shared keyboard (on ultrawide windows — width ≥ 2× height — 3/4-player mode uses a single side-by-side row ordered by keyboard position: P1 | P3 | P4 | P2)
 - **21 weapons** — machinegun, homing missiles, mines, nukes, blackholes, sonicbooms, EMP, freezer, and more
-- **33 terrain maps** loaded from the original AUTS `.LEV` format (RLE-compressed VGA data) plus a no-terrain arena mode
+- **10 bundled terrain maps** in the original AUTS `.LEV` format (RLE-compressed VGA data) — HUNAJA, JAATIKKO, KARKKI, KIERTO, KORALLI, NEBULA, SIENI, TEHDAS, TULIVUOR, VIIDAKKO — plus a no-terrain arena mode; any extra `.LEV` dropped next to the exe is picked up at startup
 - **Destructible terrain** — projectiles carve out the map on impact
 - **Bases / landing pads** — land on a pad to come to a stop, recharge energy, and switch your special weapon (by default weapons can only be changed while parked on a base)
 - **VGA Mode 13h aesthetic** — faithful 256-color palette rendering via GDI+
