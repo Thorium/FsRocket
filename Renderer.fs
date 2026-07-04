@@ -390,17 +390,31 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
 
 // ─── Draw a single player's viewport ──────────────────────────────────
 
-let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameState)
+/// vx/vy/vw/vh are LOGICAL coordinates; zoom is the uniform logical->physical
+/// scale. Every SpriteBatch batch composes Matrix.CreateScale(zoom) so all
+/// drawing stays in logical space; ScissorRectangle is a PHYSICAL pixel rect,
+/// so logical rects are scaled by zoom manually there.
+let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (zoom: float)
                    (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) =
     let hudH = 36
     let gameH = vh - hudH
     let p = gs.Players[playerIdx]
     let sb = res.SpriteBatch
+    let xform = System.Nullable(Matrix.CreateScale(float32 zoom, float32 zoom, 1.0f))
+
+    /// Logical rect -> physical scissor rect (ceil the far edge so no edge
+    /// pixel is clipped away; exact identity at zoom = 1).
+    let physRect (x: int) (y: int) (w: int) (h: int) =
+        let x0 = int (float x * zoom)
+        let y0 = int (float y * zoom)
+        let x1 = int (ceil (float (x + w) * zoom))
+        let y1 = int (ceil (float (y + h) * zoom))
+        Rectangle(x0, y0, x1 - x0, y1 - y0)
 
     // Set scissor rectangle for viewport clipping and start batch
-    device.ScissorRectangle <- Rectangle(vx, vy, vw, vh)
+    device.ScissorRectangle <- physRect vx vy vw vh
     sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-             SamplerState.PointClamp, null, res.ScissorRasterizer)
+             SamplerState.PointClamp, null, res.ScissorRasterizer, null, xform)
 
     // Background
     drawRect sb res.Pixel vx vy vw gameH bgColor
@@ -587,7 +601,7 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
 
                 // Resume SpriteBatch
                 sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-                         SamplerState.PointClamp, null, res.ScissorRasterizer)
+                         SamplerState.PointClamp, null, res.ScissorRasterizer, null, xform)
 
                 // Exhaust glow
                 let exhColor = Color(0xFF, 0x60, 0x10, 0x80)
@@ -715,7 +729,7 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                 let dColor = playerDarkColors[i % 4]
                 // Use a temporary SpriteBatch for lines
                 res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-                                      SamplerState.PointClamp, null, res.ScissorRasterizer)
+                                      SamplerState.PointClamp, null, res.ScissorRasterizer, null, xform)
                 drawLine res.SpriteBatch res.Pixel nosX nosY r1x r1y dColor 1.0f
                 drawLine res.SpriteBatch res.Pixel r1x r1y r2x r2y dColor 1.0f
                 drawLine res.SpriteBatch res.Pixel r2x r2y nosX nosY dColor 1.0f
@@ -751,9 +765,9 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     // ─── Minimap (viewport scissor) ──────────────────────────────
     // Each section gets its own SpriteBatch batch so that the scissor
     // rectangle is correct when the Deferred batch is flushed.
-    device.ScissorRectangle <- Rectangle(vx, vy, vw, vh)
+    device.ScissorRectangle <- physRect vx vy vw vh
     sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-             SamplerState.PointClamp, null, res.ScissorRasterizer)
+             SamplerState.PointClamp, null, res.ScissorRasterizer, null, xform)
 
     let mmW = min 80 (vw / 5)
     let mmH = int (float mmW * ArenaHeight / ArenaWidth)
@@ -832,9 +846,9 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     sb.End()
 
     // ─── HUD bar at bottom (HUD scissor) ───────────────────────────
-    device.ScissorRectangle <- Rectangle(vx, vy + gameH, vw, hudH)
+    device.ScissorRectangle <- physRect vx (vy + gameH) vw hudH
     sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-             SamplerState.PointClamp, null, res.ScissorRasterizer)
+             SamplerState.PointClamp, null, res.ScissorRasterizer, null, xform)
 
     drawRect sb res.Pixel vx (vy + gameH) vw hudH hudBgColor
 
@@ -887,16 +901,48 @@ let drawBorder (sb: SpriteBatch) (pixel: Texture2D) (vx: int) (vy: int) (vw: int
 
 // ─── Render full frame ─────────────────────────────────────────────────
 
+/// Design (logical) resolution: the game is laid out as if on the original
+/// 960x600 backbuffer and zoomed up uniformly to fill the window, so a
+/// bigger window means bigger pixels — not more visible map (limited
+/// per-viewport visibility is part of the game design).
+let designW = 960.0
+let designH = 600.0
+
+/// Uniform zoom factor from the physical backbuffer size. One axis is
+/// exactly the 960x600 design resolution, the other at least that (no
+/// letterbox bars). On very wide screens the logical width would grow
+/// enough for a single-player viewport to reveal the whole 320px-wide map,
+/// so above 2500 physical px the zoom ramps up a bit more (smoothly, no
+/// jump at the threshold) and the level is never shown fully.
+let zoomFor (physW: float) (physH: float) =
+    let zoomBase = min (physW / designW) (physH / designH)
+    let boost = 1.0 + max 0.0 (physW - 2500.0) / 2500.0
+    zoomBase * boost
+
+/// windowW/windowH: the PHYSICAL backbuffer size. The whole frame (world,
+/// HUD, minimap, text, menu) is drawn in logical coordinates: SpriteBatch
+/// batches get Matrix.CreateScale(zoom) as transformMatrix and BasicEffect
+/// polygons compose the same scale through the World matrix. At exactly
+/// 960x600 the zoom is 1.0 (identity transform, output unchanged).
 let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (windowW: int) (windowH: int) =
     device.Clear(Color.Black)
 
-    // Update BasicEffect projection for current window size. Guard against a
-    // zero-size window (e.g. minimized) which would make the ortho matrix
-    // degenerate (division by zero -> infinities).
+    // Guard against a zero-size window (e.g. minimized) which would make the
+    // ortho matrix degenerate (division by zero -> infinities).
+    let physW = max 1 windowW
+    let physH = max 1 windowH
+    let zoom = zoomFor (float physW) (float physH)
+    let xform = Matrix.CreateScale(float32 zoom, float32 zoom, 1.0f)
+    let windowW = int (float physW / zoom)
+    let windowH = int (float physH / zoom)
+
+    // Projection maps physical pixels; World applies the logical->physical
+    // zoom so polygon vertices are given in logical coordinates, matching
+    // the SpriteBatch transform.
     res.BasicEffect.Projection <-
-        Matrix.CreateOrthographicOffCenter(0.0f, float32 (max 1 windowW), float32 (max 1 windowH), 0.0f, 0.0f, 1.0f)
+        Matrix.CreateOrthographicOffCenter(0.0f, float32 physW, float32 physH, 0.0f, 0.0f, 1.0f)
     res.BasicEffect.View <- Matrix.Identity
-    res.BasicEffect.World <- Matrix.Identity
+    res.BasicEffect.World <- xform
 
     let layouts = viewportLayout gs.NumPlayers windowW windowH
 
@@ -904,18 +950,18 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
             // drawPlayerView manages its own SpriteBatch batches internally
-            drawPlayerView res device gs i vx vy vw vh
+            drawPlayerView res device gs zoom i vx vy vw vh
 
             // Draw border
             res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-                                  SamplerState.PointClamp, null, null)
+                                  SamplerState.PointClamp, null, null, null, xform)
             drawBorder res.SpriteBatch res.Pixel vx vy vw vh i
             res.SpriteBatch.End()
 
     // Title bar overlay
     if not gs.RoundActive then
         res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-                              SamplerState.PointClamp, null, null)
+                              SamplerState.PointClamp, null, null, null, xform)
         let overlayColor = Color(0, 0, 0, 0xC0)
         drawRect res.SpriteBatch res.Pixel 0 0 windowW windowH overlayColor
 
