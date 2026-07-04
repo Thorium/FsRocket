@@ -106,7 +106,13 @@ let private resizeCanvas () =
 
     if cw > 0.0 && ch > 0.0 then
         let dpr = getDpr ()
-        let zoom = min (cw / designW) (ch / designH)
+        let zoomBase = min (cw / designW) (ch / designH)
+        // On very wide screens the logical width would grow enough for a
+        // single-player viewport to reveal the whole 320px-wide map. Above
+        // 2500 CSS px, zoom in a bit more (smoothly, no jump at the
+        // threshold) so the level is never shown fully.
+        let boost = 1.0 + max 0.0 (cw - 2500.0) / 2500.0
+        let zoom = zoomBase * boost
         viewW <- int (cw / zoom)
         viewH <- int (ch / zoom)
         setCanvasW canvas (floor (cw * dpr))
