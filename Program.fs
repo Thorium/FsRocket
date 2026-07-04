@@ -12,6 +12,7 @@
 ///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 4 back / 5 fwd, P4 = 6 back / 7 fwd
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
+///   F4: Toggle "respawn on death" (menu only) — off = last ship flying wins the round
 ///   F5/F6: Prev/next level
 ///   Space: Start round
 ///   Escape: Quit
@@ -188,6 +189,9 @@ type FsRocketGame() as this =
         // F9 toggles the "change weapons only on bases" rule
         if this.JustPressed Keys.F9 currKeyState then
             gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+        // F4 toggles "respawn on death" — menu only, so the rule can't flip mid-round
+        if this.JustPressed Keys.F4 currKeyState && not gs.RoundActive then
+            gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
         if this.JustPressed Keys.F5 currKeyState then switchLevel -1
         if this.JustPressed Keys.F6 currKeyState then switchLevel 1
         if this.JustPressed Keys.F7 currKeyState then

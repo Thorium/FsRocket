@@ -984,6 +984,11 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
             if gs.WeaponSwitchOnlyOnBase then "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): ONLY while landed on a base   [F9 to change]"
             else "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): anytime   [F9 to require a base]"
         drawText res.SpriteBatch res.FontTexture weaponRule cx y (Color(0x90, 0xC0, 0xFF)) 1
+        y <- y + 12
+        let respawnRule =
+            if gs.RespawnOnDeath then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
+            else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
+        drawText res.SpriteBatch res.FontTexture respawnRule cx y (Color(0x90, 0xC0, 0xFF)) 1
         y <- y + 20
 
         drawText res.SpriteBatch res.FontTexture "Controls:" cx y (Color(0xFF, 0xFF, 0x80)) 1
