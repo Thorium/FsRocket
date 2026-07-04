@@ -22,11 +22,11 @@ html, body {
 }
 
 #screen {
-    /* Fill the viewport space left over by the hint lines; the game sizes its
-       render resolution from this displayed size (see resizeCanvas), so more
-       screen means more visible arena, not blurry upscaling. The chunky-pixel
-       terrain look comes from drawing it 3.75x with image smoothing disabled
-       inside the canvas, so no CSS pixelation is needed. */
+    /* Fill the viewport space left over by the hint lines; the game zooms its
+       960x600 logical layout up uniformly to this displayed size (see
+       resizeCanvas), like the old CSS upscale but sharp and without letterbox
+       bars. The chunky-pixel look comes from drawing with image smoothing
+       disabled inside the canvas, so no CSS pixelation is needed. */
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;

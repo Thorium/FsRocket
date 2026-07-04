@@ -83,26 +83,35 @@ let private assetUrl (file: string) =
 let private canvas = getEl "screen"
 let private ctx = get2dCtx canvas
 
-/// Canvas size in CSS pixels. The backing store is scaled by devicePixelRatio
-/// for crisp rendering on HiDPI screens, with a matching context transform so
-/// all drawing code keeps working in CSS pixels.
+/// Design (logical) resolution: the game is laid out as if on the original
+/// 960x600 canvas and zoomed up uniformly to fill the window, so a bigger
+/// window means bigger pixels — not more visible map (limited per-viewport
+/// visibility is part of the game design).
+let private designW = 960.0
+let private designH = 600.0
+
+/// Canvas size in logical pixels: the fitted axis is exactly 960 (or 600),
+/// the other one at least that, so there are no letterbox bars. All drawing
+/// code works in this logical space; the context transform bakes in
+/// devicePixelRatio * zoom for crisp HiDPI rendering.
 let mutable private viewW = 0
 let mutable private viewH = 0
 
-/// Size the canvas backing store from its displayed (CSS) size.
-/// Called at startup and whenever the window is resized (including F11
-/// fullscreen toggles, which fire a resize event).
+/// Size the canvas backing store from its displayed (CSS) size and derive the
+/// logical resolution. Called at startup and whenever the window is resized
+/// (including F11 fullscreen toggles, which fire a resize event).
 let private resizeCanvas () =
     let cw = clientW canvas
     let ch = clientH canvas
 
     if cw > 0.0 && ch > 0.0 then
         let dpr = getDpr ()
-        viewW <- int cw
-        viewH <- int ch
+        let zoom = min (cw / designW) (ch / designH)
+        viewW <- int (cw / zoom)
+        viewH <- int (ch / zoom)
         setCanvasW canvas (floor (cw * dpr))
         setCanvasH canvas (floor (ch * dpr))
-        setCtxScale ctx dpr
+        setCtxScale ctx (dpr * zoom)
 
 let mutable private gs = createGameState 2
 let mutable private humanCount = 2
