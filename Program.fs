@@ -6,9 +6,10 @@
 ///   Player 1 (BLUE):   Arrows/NumPad + RShift (Thrust/Left/Right/Down/Fire)
 ///   Player 2 (GREEN):  W/A/D/S/Tab (Thrust/Left/Right/Down/Fire)
 ///   Player 3 (RED):    I/J/L/K/B (Thrust/Left/Right/Down/Fire)
+///   Player 4 (YELLOW): T/F/H/G/Y (Thrust/Left/Right/Down/Fire)
 ///
 ///   1-4: Set player count (menu only)
-///   Weapon switch (in-game): P1 = 9, P2 = 1, P3 = 6
+///   Weapon switch (in-game): P1 = 9, P2 = 1, P3 = 6, P4 = 5
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
 ///   F5/F6: Prev/next level
@@ -173,10 +174,12 @@ type FsRocketGame() as this =
             if this.JustPressed Keys.D4 currKeyState then humanCount <- 4; applyPlayerCount ()
         else
             // Weapon switch on a number key close to each player's controls:
-            //   P1 (right-hand: arrows/numpad) = 9, P2 (left: WASD) = 1, P3 (mid: IJKL) = 6
+            //   P1 (right-hand: arrows/numpad) = 9, P2 (left: WASD) = 1, P3 (mid: IJKL) = 6,
+            //   P4 (mid-left: TFGH) = 5
             if this.JustPressed Keys.D9 currKeyState then gs <- cycleWeapon gs 0
             if this.JustPressed Keys.D1 currKeyState then gs <- cycleWeapon gs 1
             if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 2
+            if this.JustPressed Keys.D5 currKeyState then gs <- cycleWeapon gs 3
         // F9 toggles the "change weapons only on bases" rule
         if this.JustPressed Keys.F9 currKeyState then
             gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
@@ -218,6 +221,13 @@ type FsRocketGame() as this =
                         KeyRight = has Keys.L
                         KeyDown  = has Keys.K
                         KeyFire  = has Keys.B }
+                | 3 when gs.NumPlayers >= 4 ->
+                    { p with
+                        KeyUp    = has Keys.T
+                        KeyLeft  = has Keys.F
+                        KeyRight = has Keys.H
+                        KeyDown  = has Keys.G
+                        KeyFire  = has Keys.Y }
                 | _ -> p)
 
         gs <- { gs with Players = players }

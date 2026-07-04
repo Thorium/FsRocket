@@ -919,8 +919,8 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
         drawText res.SpriteBatch res.FontTexture "F5: prev level | F6: next level | F7/F8: CPU players | F11: Full-screen" cx y (Color(0xC0, 0xC0, 0xC0)) 1
         y <- y + 12
         let weaponRule =
-            if gs.WeaponSwitchOnlyOnBase then "Weapon switch (P1=9 P2=1 P3=6): ONLY while landed on a base   [F9 to change]"
-            else "Weapon switch (P1=9 P2=1 P3=6): anytime   [F9 to require a base]"
+            if gs.WeaponSwitchOnlyOnBase then "Weapon switch (P1=9 P2=1 P3=6 P4=5): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=9 P2=1 P3=6 P4=5): anytime   [F9 to require a base]"
         drawText res.SpriteBatch res.FontTexture weaponRule cx y (Color(0x90, 0xC0, 0xFF)) 1
         y <- y + 20
 
@@ -931,5 +931,7 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
         drawText res.SpriteBatch res.FontTexture "P2 GREEN:  W/A/D = Thrust/Turn           Tab = Fire     S = Special  1 = Weapon" cx y Color.White 1
         y <- y + 10
         drawText res.SpriteBatch res.FontTexture "P3 RED:    I/J/L = Thrust/Turn             B = Fire     K = Special  6 = Weapon" cx y Color.White 1
+        y <- y + 10
+        drawText res.SpriteBatch res.FontTexture "P4 YELLOW: T/F/H = Thrust/Turn             Y = Fire     G = Special  5 = Weapon" cx y Color.White 1
 
         res.SpriteBatch.End()
