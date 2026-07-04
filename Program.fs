@@ -3,12 +3,13 @@
 /// Game runs at 36 FPS
 ///
 /// Controls:
-///   Player 1 (RED):    Arrows/NumPad + RShift (Thrust/Left/Right/Down/Fire)
+///   Player 1 (BLUE):   Arrows/NumPad + Shift (Thrust/Left/Right/Down/Fire)
 ///   Player 2 (GREEN):  W/A/D/S/Tab (Thrust/Left/Right/Down/Fire)
-///   Player 3 (YELLOW): I/J/L/K/B (Thrust/Left/Right/Down/Fire)
+///   Player 3 (RED):    I/J/L/K/B (Thrust/Left/Right/Down/Fire)
+///   Player 4 (YELLOW): T/F/H/G/Y (Thrust/Left/Right/Down/Fire)
 ///
 ///   1-4: Set player count (menu only)
-///   Weapon switch (in-game): P1 = 9, P2 = 1, P3 = 6
+///   Weapon switch (in-game): P1 = 9, P2 = 1, P3 = 6, P4 = 5
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
 ///   F5/F6: Prev/next level
@@ -172,10 +173,12 @@ type GameForm() as this =
         | Keys.D3 when not gs.RoundActive -> humanCount <- 3; applyPlayerCount ()
         | Keys.D4 when not gs.RoundActive -> humanCount <- 4; applyPlayerCount ()
         // Weapon switch on a number key near each player's controls:
-        //   P1 (right: arrows/numpad) = 9, P2 (left: WASD) = 1, P3 (mid: IJKL) = 6
+        //   P1 (right: arrows/numpad) = 9, P2 (left: WASD) = 1, P3 (mid: IJKL) = 6,
+        //   P4 (mid-left: TFGH) = 5
         | Keys.D9 when gs.RoundActive -> gs <- cycleWeapon gs 0
         | Keys.D1 when gs.RoundActive -> gs <- cycleWeapon gs 1
         | Keys.D6 when gs.RoundActive -> gs <- cycleWeapon gs 2
+        | Keys.D5 when gs.RoundActive -> gs <- cycleWeapon gs 3
         // Toggle the "change weapons only on bases" rule
         | Keys.F9 -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
         | Keys.F5 -> switchLevel -1
@@ -215,13 +218,13 @@ type GameForm() as this =
                 else
                 match i with
                 | 0 when gs.NumPlayers >= 1 ->
-                    // Player 1 (RED): Arrow keys / NumPad + RShift
+                    // Player 1 (BLUE): Arrow keys / NumPad + Shift
                     { p with
                         KeyUp    = has Keys.Up    || has Keys.NumPad8
                         KeyLeft  = has Keys.Left  || has Keys.NumPad4
                         KeyRight = has Keys.Right || has Keys.NumPad6
                         KeyDown  = has Keys.Down  || has Keys.NumPad5
-                        KeyFire  = has Keys.RShiftKey || has Keys.Enter }
+                        KeyFire  = has Keys.ShiftKey || has Keys.Enter }
                 | 1 when gs.NumPlayers >= 2 ->
                     // Player 2 (GREEN): WASD + Tab
                     { p with
@@ -231,13 +234,21 @@ type GameForm() as this =
                         KeyDown  = has Keys.S
                         KeyFire  = has Keys.Tab }
                 | 2 when gs.NumPlayers >= 3 ->
-                    // Player 3 (YELLOW): IJKL + B
+                    // Player 3 (RED): IJKL + B
                     { p with
                         KeyUp    = has Keys.I
                         KeyLeft  = has Keys.J
                         KeyRight = has Keys.L
                         KeyDown  = has Keys.K
                         KeyFire  = has Keys.B }
+                | 3 when gs.NumPlayers >= 4 ->
+                    // Player 4 (YELLOW): TFGH + Y
+                    { p with
+                        KeyUp    = has Keys.T
+                        KeyLeft  = has Keys.F
+                        KeyRight = has Keys.H
+                        KeyDown  = has Keys.G
+                        KeyFire  = has Keys.Y }
                 | _ -> p)
 
         gs <- { gs with Players = players }
