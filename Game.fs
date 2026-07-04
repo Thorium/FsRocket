@@ -22,6 +22,16 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
     let w = getWeapon p.WeaponType
     let p = { p with ReloadTimer = w.ReloadTicks; Ammo = p.Ammo - 1; ShotCount = p.ShotCount + 1 }
 
+    // Recoil: main-fire shots give the ship a light backwards kick — 30% of
+    // the special-weapon recoil in fireSpecial (CPU players fire through this
+    // same path, so they recoil too).
+    let p =
+        let rad = degToRad (p.Angle + 90.0)
+        let recoil = SpecialFireRecoil * CannonRecoilFraction
+        { p with
+            VelX = p.VelX - cos rad * recoil
+            VelY = p.VelY + sin rad * recoil }
+
     match p.WeaponType with
     | WeaponType.Magnofilter ->
         // MAGNOFILTER — fire key toggles the field (same as DOWN)
@@ -101,7 +111,7 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
 
     // Recoil: push ship backwards (opposite to facing direction)
     let rad = degToRad (p.Angle + 90.0)
-    let recoil = 0.3
+    let recoil = SpecialFireRecoil
     let p = { p with
                 VelX = p.VelX - cos rad * recoil
                 VelY = p.VelY + sin rad * recoil
@@ -885,17 +895,41 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 if np.Flags.HasFlag(PlayerFlags.Shield) then ShieldKnockbackScale
                                 else NormalKnockbackScale
                             if ent.VelX <> 0.0 || ent.VelY <> 0.0 then
-                                // Divisor is in player-velocity units (world px/tick). The
-                                // heavy blasts fold in PositionScale to stay gentle; plain
-                                // bullets omit it so a hit gives a small but visible nudge.
-                                let kbDiv =
-                                    match ent.EType with
-                                    | EntityType.Nuke | EntityType.Expanding -> 1.0 * PositionScale
-                                    | EntityType.Heavy -> 2.0 * PositionScale
-                                    | _ -> BulletKnockbackDiv
-                                np <- { np with
-                                            VelX = np.VelX + ent.VelX / (kbDiv * knockScale)
-                                            VelY = np.VelY + ent.VelY / (kbDiv * knockScale) }
+                                match ent.EType with
+                                | EntityType.Bullet | EntityType.BulletAlt ->
+                                    // Momentum-style push for plain bullets: the victim gets
+                                    // BulletHitImpulseFraction (~80%) of the firing recoil for
+                                    // this projectile class as an impulse along the bullet's
+                                    // travel direction, scaled by how much of its muzzle speed
+                                    // the bullet still carries at impact (slowed = softer,
+                                    // gravity-accelerated = harder). Applying vel * (frac *
+                                    // recoil / muzzle) gives exactly that without a sqrt.
+                                    let fireRecoil =
+                                        if ent.WeaponIdx = WeaponType.Cannon
+                                        then SpecialFireRecoil * CannonRecoilFraction
+                                        else SpecialFireRecoil
+                                    let muzzle = (getWeapon ent.WeaponIdx).ProjectileSpeed
+                                    let impulsePerSpeed =
+                                        if muzzle > 0.0 then BulletHitImpulseFraction * fireRecoil / muzzle
+                                        else 0.0
+                                    // Shielded ships take half the push, matching the
+                                    // Normal/Shield knockback ratio used elsewhere.
+                                    let shieldScale = NormalKnockbackScale / knockScale
+                                    np <- { np with
+                                                VelX = np.VelX + ent.VelX * impulsePerSpeed * shieldScale
+                                                VelY = np.VelY + ent.VelY * impulsePerSpeed * shieldScale }
+                                | _ ->
+                                    // Divisor is in player-velocity units (world px/tick). The
+                                    // heavy blasts fold in PositionScale to stay gentle; other
+                                    // projectiles keep the legacy knockback divisor.
+                                    let kbDiv =
+                                        match ent.EType with
+                                        | EntityType.Nuke | EntityType.Expanding -> 1.0 * PositionScale
+                                        | EntityType.Heavy -> 2.0 * PositionScale
+                                        | _ -> BulletKnockbackDiv
+                                    np <- { np with
+                                                VelX = np.VelX + ent.VelX / (kbDiv * knockScale)
+                                                VelY = np.VelY + ent.VelY / (kbDiv * knockScale) }
                             else
                                 match ent.EType with
                                 | EntityType.Mine | EntityType.Expanding | EntityType.Nuke ->
