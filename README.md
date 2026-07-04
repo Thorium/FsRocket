@@ -61,7 +61,7 @@ Deployment to GitHub Pages (https://thorium.github.io/FsRocket/) is automated by
 | P3 (Red)     | T               | F               | H               | G              | Y              | `4` back / `5` fwd |
 | P4 (Yellow)  | I               | J               | L               | K              | B              | `6` back / `7` fwd |
 
-**Global keys:** `1`-`4` set the player count (in the menu), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `Space` starts a round, `Escape` resets to the menu.
+**Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `Space` starts a round, `Escape` resets to the menu.
 
 By default the special weapon can only be changed while **parked on a base**; the per-player keys above cycle it. Use the **Upload a .LEV map** button under the canvas to load your own maps.
 

@@ -7,7 +7,7 @@
 ///   P2: Arrows/NumPad + RShift/Enter                           weapon switch = 8 back / 9 fwd
 ///   P3: T/F/H/G + Y                                            weapon switch = 4 back / 5 fwd
 ///   P4: I/J/L/K + B                                            weapon switch = 6 back / 7 fwd
-///   SPACE start · ESC reset · 1-4 players (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
+///   SPACE start · ESC reset · 1-4 players (menu) · F4 respawn-rule (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
 module FsRocket.Program
 
 open System
@@ -276,6 +276,8 @@ let private onKeyDown (e: obj) =
     | "Digit6" when gs.RoundActive -> cycleWeapon 3 (-1)
     | "Digit7" when gs.RoundActive -> cycleWeapon 3 1
     | "F9" -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+    // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
+    | "F4" when not gs.RoundActive -> gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
     | "F5" -> switchLevel -1
     | "F6" -> switchLevel 1
     | "F7" -> cpuCount <- max 0 (cpuCount - 1); applyPlayerCount ()
