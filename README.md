@@ -19,7 +19,7 @@ This is the **`FableWeb`** branch — the browser version (Fable + HTML5 Canvas)
 
 ## Features
 
-- **1-4 player local multiplayer** with split-screen viewports on a shared keyboard
+- **1-4 player local multiplayer** with split-screen viewports on a shared keyboard (on ultrawide windows — width ≥ 2× height — 3/4-player mode uses a single side-by-side row ordered by keyboard position: P1 | P3 | P4 | P2)
 - **21 weapons** — machinegun, homing missiles, mines, nukes, blackholes, sonicbooms, EMP, freezer, and more
 - **Original AUTS `.LEV` maps** (RLE-compressed VGA data) — ships with `CLASSIC`, and you can **upload your own `.LEV` files** in the browser to build a level rotation (`F5`/`F6` to cycle)
 - **Destructible terrain** — projectiles carve out the map on impact
