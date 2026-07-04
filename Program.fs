@@ -12,6 +12,7 @@
 ///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 4 back / 5 fwd, P4 = 6 back / 7 fwd
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
+///   F4: Toggle "respawn on death" (menu only) — off = last ship flying wins the round
 ///   F5/F6: Prev/next level
 ///   Space: Start round
 ///   Escape: Quit
@@ -186,6 +187,8 @@ type GameForm() as this =
         | Keys.D7 when gs.RoundActive -> gs <- cycleWeapon gs 3 1
         // Toggle the "change weapons only on bases" rule
         | Keys.F9 -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+        // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
+        | Keys.F4 when not gs.RoundActive -> gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
         | Keys.F5 -> switchLevel -1
         | Keys.F6 -> switchLevel 1
         | Keys.F7 ->

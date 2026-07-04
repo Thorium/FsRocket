@@ -57,7 +57,7 @@ dotnet fsi test.fsx
 
 The main gun fires with the **Fire** key; the **Special** weapon fires with the **Down** key. The weapon-switch keys (placed near each player's hands) cycle the special weapon — by default **only while parked on a base**.
 
-**Global keys:** `1`-`4` set the player count (in the menu), `F5`/`F6` change level, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F11` toggles fullscreen, `Space` starts a round, `Escape` returns to the menu / quits.
+**Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` change level, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F11` toggles fullscreen, `Space` starts a round, `Escape` returns to the menu / quits.
 
 ## Project Structure
 
