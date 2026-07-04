@@ -82,6 +82,24 @@ let CannonRecoilFraction = 0.3
 [<Literal>]
 let BulletHitImpulseFraction = 0.8
 
+/// A bullet hit unseats a ship parked on a base: lift in pixels applied to
+/// the victim so it clears the pad's rest-snap, which re-seats and zeroes
+/// the velocity of any non-thrusting ship within BaseLandReach (3px) of a
+/// pad every tick. Must exceed BaseLandReach or the whole kick is cancelled
+/// on the next tick.
+[<Literal>]
+let BasedHitUnseatLift = 4.0
+
+/// Upward velocity kick for a based victim, as a fraction of the bullet's
+/// hit-impulse magnitude (harder hits pop the ship higher).
+[<Literal>]
+let BasedHitUpwardKickScale = 0.75
+
+/// Floor for the based-victim upward kick (px/tick) — two thrust-ticks, so
+/// even a weak cannon hit keeps the ship airborne long enough to slide.
+[<Literal>]
+let BasedHitUpwardKickMin = 0.2
+
 // ─── Drunk/Disoriented Effect ──────────────────────────────────────────
 
 /// Drunk wobble force magnitude
