@@ -11,26 +11,28 @@ html, body {
 }
 
 #root {
-    min-height: 100%;
+    height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 16px;
+    gap: 8px;
+    padding: 10px;
     box-sizing: border-box;
 }
 
 #screen {
-    /* Native render resolution is 960x600; scale up to the viewport while
-       keeping aspect ratio and crisp pixels. */
-    width: min(96vw, calc(96vh * 1.6));
-    height: auto;
-    aspect-ratio: 960 / 600;
+    /* Fill the viewport space left over by the hint lines; the game sizes its
+       render resolution from this displayed size (see resizeCanvas), so more
+       screen means more visible arena, not blurry upscaling. The chunky-pixel
+       terrain look comes from drawing it 3.75x with image smoothing disabled
+       inside the canvas, so no CSS pixelation is needed. */
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
     background: #000;
     border: 2px solid #2a2a3a;
     border-radius: 4px;
-    image-rendering: pixelated;
     outline: none;
 }
 
