@@ -3,10 +3,10 @@
 /// requestAnimationFrame, and maps keyboard input to the shared game logic.
 ///
 /// Controls:
-///   P1: Arrows/NumPad + RShift/Enter (Thrust/Turn/Down/Fire)   weapon switch = 9
-///   P2: W/A/D/S + Tab                                          weapon switch = 1
-///   P3: I/J/L/K + B                                            weapon switch = 6
-///   P4: T/F/H/G + Y                                            weapon switch = 5
+///   P1: W/A/D/S + Tab (Thrust/Turn/Down/Fire)                  weapon switch = 1 back / 2 fwd
+///   P2: Arrows/NumPad + RShift/Enter                           weapon switch = 8 back / 9 fwd
+///   P3: T/F/H/G + Y                                            weapon switch = 5
+///   P4: I/J/L/K + B                                            weapon switch = 6
 ///   SPACE start · ESC reset · 1-4 players (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
 module FsRocket.Program
 
@@ -143,15 +143,16 @@ let private switchLevel (delta: int) =
 
 /// Cycle a player's special weapon. During a live round this is only allowed
 /// while the ship is parked on a base (unless the F9 rule is toggled off).
-let private cycleWeapon (playerIdx: int) =
+let private cycleWeapon (playerIdx: int) (dir: int) =
     if playerIdx < gs.NumPlayers then
         let p = gs.Players[playerIdx]
         let allowed = not gs.WeaponSwitchOnlyOnBase || not gs.RoundActive || p.OnBase
         if allowed then
-            let mutable wt = (int p.SpecialWeapon + 1) % weapons.Length
+            let len = weapons.Length
+            let mutable wt = (int p.SpecialWeapon + dir + len) % len
             let mutable guard = 0
-            while (not weapons[wt].Enabled || wt = int WeaponType.Cannon) && guard < weapons.Length do
-                wt <- (wt + 1) % weapons.Length
+            while (not weapons[wt].Enabled || wt = int WeaponType.Cannon) && guard < len do
+                wt <- (wt + dir + len) % len
                 guard <- guard + 1
             let np = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
             gs <- { gs with Players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then np else pl) }
@@ -167,32 +168,32 @@ let private mapInputs () =
                 match i with
                 | 0 when gs.NumPlayers >= 1 ->
                     { p with
-                        KeyUp = has "ArrowUp" || has "Numpad8"
-                        KeyLeft = has "ArrowLeft" || has "Numpad4"
-                        KeyRight = has "ArrowRight" || has "Numpad6"
-                        KeyDown = has "ArrowDown" || has "Numpad5"
-                        KeyFire = has "ShiftRight" || has "Enter" }
-                | 1 when gs.NumPlayers >= 2 ->
-                    { p with
                         KeyUp = has "KeyW"
                         KeyLeft = has "KeyA"
                         KeyRight = has "KeyD"
                         KeyDown = has "KeyS"
                         KeyFire = has "Tab" }
-                | 2 when gs.NumPlayers >= 3 ->
+                | 1 when gs.NumPlayers >= 2 ->
                     { p with
-                        KeyUp = has "KeyI"
-                        KeyLeft = has "KeyJ"
-                        KeyRight = has "KeyL"
-                        KeyDown = has "KeyK"
-                        KeyFire = has "KeyB" }
-                | 3 when gs.NumPlayers >= 4 ->
+                        KeyUp = has "ArrowUp" || has "Numpad8"
+                        KeyLeft = has "ArrowLeft" || has "Numpad4"
+                        KeyRight = has "ArrowRight" || has "Numpad6"
+                        KeyDown = has "ArrowDown" || has "Numpad5"
+                        KeyFire = has "ShiftRight" || has "Enter" }
+                | 2 when gs.NumPlayers >= 3 ->
                     { p with
                         KeyUp = has "KeyT"
                         KeyLeft = has "KeyF"
                         KeyRight = has "KeyH"
                         KeyDown = has "KeyG"
                         KeyFire = has "KeyY" }
+                | 3 when gs.NumPlayers >= 4 ->
+                    { p with
+                        KeyUp = has "KeyI"
+                        KeyLeft = has "KeyJ"
+                        KeyRight = has "KeyL"
+                        KeyDown = has "KeyK"
+                        KeyFire = has "KeyB" }
                 | _ -> p)
     gs <- { gs with Players = players }
 
@@ -211,11 +212,13 @@ let private onKeyDown (e: obj) =
     | "Digit2" when not gs.RoundActive -> humanCount <- 2; applyPlayerCount ()
     | "Digit3" when not gs.RoundActive -> humanCount <- 3; applyPlayerCount ()
     | "Digit4" when not gs.RoundActive -> humanCount <- 4; applyPlayerCount ()
-    // Weapon switch near each player's hand: P1=9, P2=1, P3=6, P4=5
-    | "Digit9" when gs.RoundActive -> cycleWeapon 0
-    | "Digit1" when gs.RoundActive -> cycleWeapon 1
-    | "Digit6" when gs.RoundActive -> cycleWeapon 2
-    | "Digit5" when gs.RoundActive -> cycleWeapon 3
+    // Weapon switch near each player's hand: P1=1/2, P2=8/9, P3=5, P4=6
+    | "Digit1" when gs.RoundActive -> cycleWeapon 0 (-1)
+    | "Digit2" when gs.RoundActive -> cycleWeapon 0 1
+    | "Digit8" when gs.RoundActive -> cycleWeapon 1 (-1)
+    | "Digit9" when gs.RoundActive -> cycleWeapon 1 1
+    | "Digit5" when gs.RoundActive -> cycleWeapon 2 1
+    | "Digit6" when gs.RoundActive -> cycleWeapon 3 1
     | "F9" -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
     | "F5" -> switchLevel -1
     | "F6" -> switchLevel 1

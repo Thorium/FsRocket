@@ -518,7 +518,7 @@ check "MISSILE recoil: angle=0 → no X recoil" (approx recoilVx 0.0)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "-- Test 19: Enter as backup fire key --"
-// Program.fs maps P1 fire as: has Keys.RShiftKey || has Keys.Enter
+// Program.fs maps P2 fire as: has Keys.RShiftKey || has Keys.Enter
 // We verify the logic: if either key returns true, KeyFire is set
 // (Can't test actual WinForms key events in fsx, but verify the OR logic)
 let hasRShift = false  // Simulate RShift not working (shift key bug)

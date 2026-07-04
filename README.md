@@ -54,16 +54,16 @@ Deployment to GitHub Pages (https://thorium.github.io/FsRocket/) is automated by
 
 ## Controls
 
-| Player       | Thrust          | Left            | Right           | Special (Down) | Fire           | Switch weapon |
-|--------------|-----------------|-----------------|-----------------|----------------|----------------|---------------|
-| P1 (Blue)    | Up / NumPad8    | Left / NumPad4  | Right / NumPad6 | Down / NumPad5 | RShift / Enter | `9`           |
-| P2 (Green)   | W               | A               | D               | S              | Tab            | `1`           |
-| P3 (Red)     | I               | J               | L               | K              | B              | `6`           |
-| P4 (Yellow)  | T               | F               | H               | G              | Y              | `5`           |
+| Player       | Thrust          | Left            | Right           | Special (Down) | Fire           | Switch weapon      |
+|--------------|-----------------|-----------------|-----------------|----------------|----------------|--------------------|
+| P1 (Blue)    | W               | A               | D               | S              | Tab            | `1` back / `2` fwd |
+| P2 (Green)   | Up / NumPad8    | Left / NumPad4  | Right / NumPad6 | Down / NumPad5 | RShift / Enter | `8` back / `9` fwd |
+| P3 (Red)     | T               | F               | H               | G              | Y              | `5`                |
+| P4 (Yellow)  | I               | J               | L               | K              | B              | `6`                |
 
 **Global keys:** `1`-`4` set the player count (in the menu), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `Space` starts a round, `Escape` resets to the menu.
 
-By default the special weapon can only be changed while **parked on a base**; the per-player keys above (`9`/`1`/`6`/`5`) cycle it. Use the **Upload a .LEV map** button under the canvas to load your own maps.
+By default the special weapon can only be changed while **parked on a base**; the per-player keys above cycle it. Use the **Upload a .LEV map** button under the canvas to load your own maps.
 
 ## Project Structure
 
