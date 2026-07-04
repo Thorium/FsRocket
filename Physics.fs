@@ -63,6 +63,25 @@ let ShieldCollisionDamageScale = 3.0
 [<Literal>]
 let BulletKnockbackDiv = 10.0
 
+// ─── Firing Recoil / Bullet Momentum ───────────────────────────────────
+
+/// Backwards kick applied to the firing ship on a special-weapon shot
+/// (player-velocity units = world px/tick; cf. ThrustAccel = 0.1).
+[<Literal>]
+let SpecialFireRecoil = 0.3
+
+/// Main-cannon shots kick the firer at this fraction of SpecialFireRecoil —
+/// a light nudge (~1 tick of thrust), noticeable but not disruptive.
+[<Literal>]
+let CannonRecoilFraction = 0.3
+
+/// Momentum model for plain-bullet hits: treating the firing recoil as 100%
+/// of the bullet's momentum, the ship it strikes receives this fraction as a
+/// push in the bullet's travel direction. Full value at muzzle speed, scaled
+/// down proportionally when the bullet has slowed by impact time.
+[<Literal>]
+let BulletHitImpulseFraction = 0.8
+
 // ─── Drunk/Disoriented Effect ──────────────────────────────────────────
 
 /// Drunk wobble force magnitude
