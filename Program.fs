@@ -6,6 +6,7 @@
 ///   P1: Arrows/NumPad + RShift/Enter (Thrust/Turn/Down/Fire)   weapon switch = 9
 ///   P2: W/A/D/S + Tab                                          weapon switch = 1
 ///   P3: I/J/L/K + B                                            weapon switch = 6
+///   P4: T/F/H/G + Y                                            weapon switch = 5
 ///   SPACE start · ESC reset · 1-4 players (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
 module FsRocket.Program
 
@@ -185,6 +186,13 @@ let private mapInputs () =
                         KeyRight = has "KeyL"
                         KeyDown = has "KeyK"
                         KeyFire = has "KeyB" }
+                | 3 when gs.NumPlayers >= 4 ->
+                    { p with
+                        KeyUp = has "KeyT"
+                        KeyLeft = has "KeyF"
+                        KeyRight = has "KeyH"
+                        KeyDown = has "KeyG"
+                        KeyFire = has "KeyY" }
                 | _ -> p)
     gs <- { gs with Players = players }
 
@@ -203,10 +211,11 @@ let private onKeyDown (e: obj) =
     | "Digit2" when not gs.RoundActive -> humanCount <- 2; applyPlayerCount ()
     | "Digit3" when not gs.RoundActive -> humanCount <- 3; applyPlayerCount ()
     | "Digit4" when not gs.RoundActive -> humanCount <- 4; applyPlayerCount ()
-    // Weapon switch near each player's hand: P1=9, P2=1, P3=6
+    // Weapon switch near each player's hand: P1=9, P2=1, P3=6, P4=5
     | "Digit9" when gs.RoundActive -> cycleWeapon 0
     | "Digit1" when gs.RoundActive -> cycleWeapon 1
     | "Digit6" when gs.RoundActive -> cycleWeapon 2
+    | "Digit5" when gs.RoundActive -> cycleWeapon 3
     | "F9" -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
     | "F5" -> switchLevel -1
     | "F6" -> switchLevel 1
