@@ -706,6 +706,12 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
             then "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): ONLY while landed on a base   [F9 to change]"
             else "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): anytime   [F9 to require a base]"
         g.DrawString(weaponRule, subFont, cyan, cx, y)
+        y <- y + 16.0f
+        let respawnRule =
+            if gs.RespawnOnDeath
+            then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
+            else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
+        g.DrawString(respawnRule, subFont, cyan, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
         y <- y + 18.0f
