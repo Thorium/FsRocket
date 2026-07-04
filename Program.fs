@@ -3,13 +3,13 @@
 /// Game runs at 36 FPS using MonoGame's fixed timestep
 ///
 /// Controls:
-///   Player 1 (BLUE):   Arrows/NumPad + RShift (Thrust/Left/Right/Down/Fire)
-///   Player 2 (GREEN):  W/A/D/S/Tab (Thrust/Left/Right/Down/Fire)
-///   Player 3 (RED):    I/J/L/K/B (Thrust/Left/Right/Down/Fire)
-///   Player 4 (YELLOW): T/F/H/G/Y (Thrust/Left/Right/Down/Fire)
+///   Player 1 (BLUE):   W/A/D/S/Tab (Thrust/Left/Right/Down/Fire)
+///   Player 2 (GREEN):  Arrows/NumPad + RShift (Thrust/Left/Right/Down/Fire)
+///   Player 3 (RED):    T/F/H/G/Y (Thrust/Left/Right/Down/Fire)
+///   Player 4 (YELLOW): I/J/L/K/B (Thrust/Left/Right/Down/Fire)
 ///
 ///   1-4: Set player count (menu only)
-///   Weapon switch (in-game): P1 = 9, P2 = 1, P3 = 6, P4 = 5
+///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 5, P4 = 6
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
 ///   F5/F6: Prev/next level
@@ -55,7 +55,7 @@ let tryLoadLevel (gs: GameState) (name: string) : GameState option =
 
 // ─── Special weapon cycling helper ────────────────────────────────────
 
-let cycleWeapon (gs: GameState) (playerIdx: int) : GameState =
+let cycleWeapon (gs: GameState) (playerIdx: int) (dir: int) : GameState =
     if playerIdx >= gs.NumPlayers then gs
     else
         let p = gs.Players[playerIdx]
@@ -64,12 +64,13 @@ let cycleWeapon (gs: GameState) (playerIdx: int) : GameState =
         let allowed = not gs.WeaponSwitchOnlyOnBase || not gs.RoundActive || p.OnBase
         if not allowed then gs
         else
-            let mutable wt = (int p.SpecialWeapon + 1) % weapons.Length
+            let len = weapons.Length
+            let mutable wt = (int p.SpecialWeapon + dir + len) % len
             // Skip disabled weapons and Cannon (the always-on main gun). Guard the
             // scan so a weapon table with no enabled alternative can't hang the loop.
             let mutable guard = 0
-            while (not weapons[wt].Enabled || wt = int WeaponType.Cannon) && guard < weapons.Length do
-                wt <- (wt + 1) % weapons.Length
+            while (not weapons[wt].Enabled || wt = int WeaponType.Cannon) && guard < len do
+                wt <- (wt + dir + len) % len
                 guard <- guard + 1
             let p = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
             let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
@@ -174,12 +175,14 @@ type FsRocketGame() as this =
             if this.JustPressed Keys.D4 currKeyState then humanCount <- 4; applyPlayerCount ()
         else
             // Weapon switch on a number key close to each player's controls:
-            //   P1 (right-hand: arrows/numpad) = 9, P2 (left: WASD) = 1, P3 (mid: IJKL) = 6,
-            //   P4 (mid-left: TFGH) = 5
-            if this.JustPressed Keys.D9 currKeyState then gs <- cycleWeapon gs 0
-            if this.JustPressed Keys.D1 currKeyState then gs <- cycleWeapon gs 1
-            if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 2
-            if this.JustPressed Keys.D5 currKeyState then gs <- cycleWeapon gs 3
+            //   P1 (left: WASD) = 1 back / 2 fwd, P2 (right: arrows/numpad) = 8 back / 9 fwd,
+            //   P3 (left: TFGH) = 5, P4 (right: IJKL) = 6
+            if this.JustPressed Keys.D1 currKeyState then gs <- cycleWeapon gs 0 (-1)
+            if this.JustPressed Keys.D2 currKeyState then gs <- cycleWeapon gs 0 1
+            if this.JustPressed Keys.D8 currKeyState then gs <- cycleWeapon gs 1 (-1)
+            if this.JustPressed Keys.D9 currKeyState then gs <- cycleWeapon gs 1 1
+            if this.JustPressed Keys.D5 currKeyState then gs <- cycleWeapon gs 2 1
+            if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 3 1
         // F9 toggles the "change weapons only on bases" rule
         if this.JustPressed Keys.F9 currKeyState then
             gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
@@ -202,32 +205,32 @@ type FsRocketGame() as this =
                 match i with
                 | 0 when gs.NumPlayers >= 1 ->
                     { p with
-                        KeyUp    = has Keys.Up    || has Keys.NumPad8
-                        KeyLeft  = has Keys.Left  || has Keys.NumPad4
-                        KeyRight = has Keys.Right || has Keys.NumPad6
-                        KeyDown  = has Keys.Down  || has Keys.NumPad5
-                        KeyFire  = has Keys.RightShift || has Keys.Enter }
-                | 1 when gs.NumPlayers >= 2 ->
-                    { p with
                         KeyUp    = has Keys.W
                         KeyLeft  = has Keys.A
                         KeyRight = has Keys.D
                         KeyDown  = has Keys.S
                         KeyFire  = has Keys.Tab }
-                | 2 when gs.NumPlayers >= 3 ->
+                | 1 when gs.NumPlayers >= 2 ->
                     { p with
-                        KeyUp    = has Keys.I
-                        KeyLeft  = has Keys.J
-                        KeyRight = has Keys.L
-                        KeyDown  = has Keys.K
-                        KeyFire  = has Keys.B }
-                | 3 when gs.NumPlayers >= 4 ->
+                        KeyUp    = has Keys.Up    || has Keys.NumPad8
+                        KeyLeft  = has Keys.Left  || has Keys.NumPad4
+                        KeyRight = has Keys.Right || has Keys.NumPad6
+                        KeyDown  = has Keys.Down  || has Keys.NumPad5
+                        KeyFire  = has Keys.RightShift || has Keys.Enter }
+                | 2 when gs.NumPlayers >= 3 ->
                     { p with
                         KeyUp    = has Keys.T
                         KeyLeft  = has Keys.F
                         KeyRight = has Keys.H
                         KeyDown  = has Keys.G
                         KeyFire  = has Keys.Y }
+                | 3 when gs.NumPlayers >= 4 ->
+                    { p with
+                        KeyUp    = has Keys.I
+                        KeyLeft  = has Keys.J
+                        KeyRight = has Keys.L
+                        KeyDown  = has Keys.K
+                        KeyFire  = has Keys.B }
                 | _ -> p)
 
         gs <- { gs with Players = players }
