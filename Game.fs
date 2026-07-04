@@ -14,7 +14,7 @@ open FsRocket.Entities
 
 /// Spawn explosion particles (convenience wrapper)
 let spawnExplosion (rng: Random) (x: float) (y: float) (count: int) (speed: float) (life: int) (ownerIdx: int) : Particle list =
-    spawnExplosionParticles rng x y count speed life (playerColors[ownerIdx % 4])
+    spawnExplosionParticles rng x y count speed life (ownerIdx % 4)
 
 // ─── Weapon Firing (returns updated Player * new Entity list) ──────────
 
@@ -113,7 +113,7 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
         let flags =
             if p.Flags.HasFlag(PlayerFlags.Magno) then p.Flags &&& ~~~PlayerFlags.Magno
             else p.Flags ||| PlayerFlags.Magno
-        { p with Flags = flags; KeyDown = false }, []
+        { p with Flags = flags; KeyDown = false; SpecialReloadTimer = 10 }, []
 
     | WeaponType.RearTurret ->
         // REAR TURRET: fire behind
@@ -920,7 +920,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                             StunTimer = np.StunTimer + StunDurationPerHit }
                             | EntityType.Shield ->
                                 np <- { np with
-                                            Flags = np.Flags ||| PlayerFlags.Shield
+                                            Flags = (np.Flags ||| PlayerFlags.Shield) &&& ~~~PlayerFlags.Stunned
                                             StunTimer = 0 }
                             | EntityType.PassThrough ->
                                 np <- { np with Flags = np.Flags &&& ~~~PlayerFlags.Shield }
@@ -1084,7 +1084,7 @@ let cpuAI (gs: GameState) : GameState =
                     let tdx = predX - px
                     let tdy = predY - py
                     let targetAngle =
-                        let a = atan2 tdx (-tdy) * 180.0 / Math.PI
+                        let a = atan2 (-tdx) (-tdy) * 180.0 / Math.PI
                         if a < 0.0 then a + 360.0 else a
                     let mutable diff = targetAngle - p.Angle
                     if diff > 180.0 then diff <- diff - 360.0
@@ -1125,7 +1125,7 @@ let cpuAI (gs: GameState) : GameState =
                     let dodgeAngle =
                         if dodging then
                             // Perpendicular to threat — flee sideways
-                            let a = atan2 threatDX (-threatDY) * 180.0 / Math.PI
+                            let a = atan2 (-threatDX) (-threatDY) * 180.0 / Math.PI
                             if a < 0.0 then a + 360.0 else a
                         else 0.0
 
@@ -1205,7 +1205,7 @@ let cpuAI (gs: GameState) : GameState =
 
                     // ── Special weapon (DOWN key) ──
                     let useSpecial =
-                        match p.WeaponType with
+                        match p.SpecialWeapon with
                         | WeaponType.Magnofilter ->
                             // Toggle magno when enemy projectiles are nearby
                             threatCount > 0 && not (p.Flags.HasFlag(PlayerFlags.Magno))
