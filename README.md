@@ -58,8 +58,8 @@ Deployment to GitHub Pages (https://thorium.github.io/FsRocket/) is automated by
 |--------------|-----------------|-----------------|-----------------|----------------|----------------|--------------------|
 | P1 (Blue)    | W               | A               | D               | S              | Tab            | `1` back / `2` fwd |
 | P2 (Green)   | Up / NumPad8    | Left / NumPad4  | Right / NumPad6 | Down / NumPad5 | RShift / Enter | `8` back / `9` fwd |
-| P3 (Red)     | T               | F               | H               | G              | Y              | `5`                |
-| P4 (Yellow)  | I               | J               | L               | K              | B              | `6`                |
+| P3 (Red)     | T               | F               | H               | G              | Y              | `4` back / `5` fwd |
+| P4 (Yellow)  | I               | J               | L               | K              | B              | `6` back / `7` fwd |
 
 **Global keys:** `1`-`4` set the player count (in the menu), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `Space` starts a round, `Escape` resets to the menu.
 

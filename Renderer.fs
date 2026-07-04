@@ -526,8 +526,8 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
         y <- y + 18.0
         let weaponRule =
             if gs.WeaponSwitchOnlyOnBase
-            then "Weapon switch (P1=1/2 P2=8/9 P3=5 P4=6): ONLY while landed on a base   [F9 to change]"
-            else "Weapon switch (P1=1/2 P2=8/9 P3=5 P4=6): anytime   [F9 to require a base]"
+            then "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): anytime   [F9 to require a base]"
         drawText ctx weaponRule cx y subFont "rgb(144,192,255)"
         y <- y + 28.0
         drawText ctx "Controls:" cx y subFont "rgb(255,255,128)"
@@ -536,6 +536,6 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
         y <- y + 15.0
         drawText ctx "P2: Arrows/NumPad = Thrust/Turn   RShift = Fire   Down = Special   8/9 = Weapon" cx y keyFont "rgb(255,255,255)"
         y <- y + 15.0
-        drawText ctx "P3: T/F/H = Thrust/Turn   Y = Fire   G = Special   5 = Weapon" cx y keyFont "rgb(255,255,255)"
+        drawText ctx "P3: T/F/H = Thrust/Turn   Y = Fire   G = Special   4/5 = Weapon" cx y keyFont "rgb(255,255,255)"
         y <- y + 15.0
-        drawText ctx "P4: I/J/L = Thrust/Turn   B = Fire   K = Special   6 = Weapon" cx y keyFont "rgb(255,255,255)"
+        drawText ctx "P4: I/J/L = Thrust/Turn   B = Fire   K = Special   6/7 = Weapon" cx y keyFont "rgb(255,255,255)"
