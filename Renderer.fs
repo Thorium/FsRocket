@@ -153,6 +153,22 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
     | 1 -> [| (0, 0, windowW, windowH) |]
     | 2 -> [| (0, 0, windowW / 2, windowH)
               (windowW / 2, 0, windowW / 2, windowH) |]
+    | 3 | 4 when windowW >= 2 * windowH ->
+        // Ultrawide: single horizontal row (full height), ordered left-to-right by
+        // where each player's keys sit on the keyboard:
+        // 4 players: P1 (WASD) | P3 (TFHG) | P4 (IJLK) | P2 (arrows/NumPad)
+        // 3 players: P1 (WASD) | P3 (TFHG) | P2 (arrows)
+        let slotOf player =
+            match player with
+            | 0 -> 0                                   // P1 leftmost
+            | 1 -> numPlayers - 1                      // P2 rightmost
+            | 2 -> 1                                   // P3 second
+            | _ -> 2                                   // P4 third
+        Array.init numPlayers (fun player ->
+            let slot = slotOf player
+            let x = slot * windowW / numPlayers
+            let w = (slot + 1) * windowW / numPlayers - x
+            (x, 0, w, windowH))
     | 3 | 4 ->
         [| (0, 0, windowW / 2, windowH / 2)
            (windowW / 2, 0, windowW / 2, windowH / 2)
