@@ -159,12 +159,22 @@ let private resetActiveTerrain () =
         Array.blit ll.Pristine 0 ll.Data.Pixels 0 ll.Pristine.Length
         gs <- { gs with TerrainDirty = true }
 
-let private loadDefaultLevel () =
+/// The .LEV maps shipped in public/ and fetched at startup (F5/F6 cycles them).
+let private bundledLevels =
+    [ "HUNAJA"; "JAATIKKO"; "KARKKI"; "KIERTO"; "KORALLI"
+      "NEBULA"; "SIENI"; "TEHDAS"; "TULIVUOR"; "VIIDAKKO" ]
+
+let private loadBundledLevels () =
     async {
-        try
-            let! buf = fetchArrayBuffer (assetUrl "CLASSIC.LEV") |> Async.AwaitPromise
-            addLevel (loadLevelFromBytes "CLASSIC" (toBytes buf)) false
-        with _ -> ()
+        for name in bundledLevels do
+            // Stop if the player has already switched to their own uploads.
+            if not hasUserLevels then
+                try
+                    let! buf = fetchArrayBuffer (assetUrl (name + ".LEV")) |> Async.AwaitPromise
+                    addLevel (loadLevelFromBytes name (toBytes buf)) false
+                with _ -> ()
+        // addLevel activates the most recently added map; start on the first.
+        if not hasUserLevels && levels.Count > 0 then activate 0
     }
     |> Async.StartImmediate
 
@@ -300,5 +310,5 @@ resizeCanvas ()
 let private levelFileInput = getEl "level-file"
 if not (isNull levelFileInput) then onElement levelFileInput "change" onLevelFile
 applyPlayerCount ()
-loadDefaultLevel ()
+loadBundledLevels ()
 requestFrame loop

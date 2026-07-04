@@ -21,7 +21,7 @@ This is the **`FableWeb`** branch — the browser version (Fable + HTML5 Canvas)
 
 - **1-4 player local multiplayer** with split-screen viewports on a shared keyboard (on ultrawide windows — width ≥ 2× height — 3/4-player mode uses a single side-by-side row ordered by keyboard position: P1 | P3 | P4 | P2)
 - **21 weapons** — machinegun, homing missiles, mines, nukes, blackholes, sonicbooms, EMP, freezer, and more
-- **Original AUTS `.LEV` maps** (RLE-compressed VGA data) — ships with `CLASSIC`, and you can **upload your own `.LEV` files** in the browser to build a level rotation (`F5`/`F6` to cycle)
+- **Original AUTS `.LEV` maps** (RLE-compressed VGA data) — ships with 10 maps (`HUNAJA`, `JAATIKKO`, `KARKKI`, `KIERTO`, `KORALLI`, `NEBULA`, `SIENI`, `TEHDAS`, `TULIVUOR`, `VIIDAKKO`; `F5`/`F6` to cycle), and you can **upload your own `.LEV` files** in the browser to replace the rotation
 - **Destructible terrain** — projectiles carve out the map on impact
 - **VGA Mode 13h aesthetic** — faithful 256-color palette rendering on an HTML5 canvas
 - **Bases / landing pads** — land on a pad to recharge energy and switch your special weapon
