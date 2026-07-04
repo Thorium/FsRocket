@@ -53,8 +53,8 @@ dotnet fsi test.fsx
 |--------------|-----------------|-----------------|-----------------|----------------|----------------|--------------------|
 | P1 (Blue)    | W               | A               | D               | S              | Tab            | `1` back / `2` fwd |
 | P2 (Green)   | Up / NumPad8    | Left / NumPad4  | Right / NumPad6 | Down / NumPad5 | RShift / Enter | `8` back / `9` fwd |
-| P3 (Red)     | T               | F               | H               | G              | Y              | `5`                |
-| P4 (Yellow)  | I               | J               | L               | K              | B              | `6`                |
+| P3 (Red)     | T               | F               | H               | G              | Y              | `4` back / `5` fwd |
+| P4 (Yellow)  | I               | J               | L               | K              | B              | `6` back / `7` fwd |
 
 The main gun fires with the **Fire** key; the **Special** weapon fires with the **Down** key. The weapon-switch keys (placed near each player's hands) cycle the special weapon — by default **only while parked on a base**.
 

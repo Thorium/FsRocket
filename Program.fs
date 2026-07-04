@@ -9,7 +9,7 @@
 ///   Player 4 (YELLOW): I/J/L/K/B (Thrust/Left/Right/Down/Fire)
 ///
 ///   1-4: Set player count (menu only)
-///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 5, P4 = 6
+///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 4 back / 5 fwd, P4 = 6 back / 7 fwd
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
 ///   F5/F6: Prev/next level
@@ -176,13 +176,15 @@ type FsRocketGame() as this =
         else
             // Weapon switch on a number key close to each player's controls:
             //   P1 (left: WASD) = 1 back / 2 fwd, P2 (right: arrows/numpad) = 8 back / 9 fwd,
-            //   P3 (left: TFGH) = 5, P4 (right: IJKL) = 6
+            //   P3 (left: TFGH) = 4 back / 5 fwd, P4 (right: IJKL) = 6 back / 7 fwd
             if this.JustPressed Keys.D1 currKeyState then gs <- cycleWeapon gs 0 (-1)
             if this.JustPressed Keys.D2 currKeyState then gs <- cycleWeapon gs 0 1
             if this.JustPressed Keys.D8 currKeyState then gs <- cycleWeapon gs 1 (-1)
             if this.JustPressed Keys.D9 currKeyState then gs <- cycleWeapon gs 1 1
+            if this.JustPressed Keys.D4 currKeyState then gs <- cycleWeapon gs 2 (-1)
             if this.JustPressed Keys.D5 currKeyState then gs <- cycleWeapon gs 2 1
-            if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 3 1
+            if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 3 (-1)
+            if this.JustPressed Keys.D7 currKeyState then gs <- cycleWeapon gs 3 1
         // F9 toggles the "change weapons only on bases" rule
         if this.JustPressed Keys.F9 currKeyState then
             gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
