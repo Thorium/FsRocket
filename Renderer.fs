@@ -597,7 +597,7 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
 
     // Kill/Death count
     let kd = $"K:{p.KillCount} D:{p.DeathCount}"
-    g.DrawString(kd, cachedHudFont, cachedWhiteBrush, float32 (vx + barX + barW + 8), float32 (hudY + 2))
+    g.DrawString(kd, cachedHudFont, cachedWhiteBrush, float32 (barX + barW + 8), float32 (hudY + 2))
 
     // Status indicators
     if not p.Alive then
@@ -657,14 +657,16 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         y <- y + 16.0f
         let weaponRule =
             if gs.WeaponSwitchOnlyOnBase
-            then "Weapon switch (P1=9 P2=1 P3=6): ONLY while landed on a base   [F9 to change]"
-            else "Weapon switch (P1=9 P2=1 P3=6): anytime   [F9 to require a base]"
+            then "Weapon switch (P1=9 P2=1 P3=6 P4=5): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=9 P2=1 P3=6 P4=5): anytime   [F9 to require a base]"
         g.DrawString(weaponRule, subFont, cyan, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
         y <- y + 18.0f
-        g.DrawString("P1 RED:    Arrows/NumPad = Thrust/Turn    RShift = Fire    Down = Special   9 = Weapon", keyFont, white, cx, y)
+        g.DrawString("P1 BLUE:   Arrows/NumPad = Thrust/Turn    Shift = Fire     Down = Special   9 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
         g.DrawString("P2 GREEN:  W/A/D = Thrust/Turn            Tab = Fire       S = Special   1 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
-        g.DrawString("P3 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Special   6 = Weapon", keyFont, white, cx, y)
+        g.DrawString("P3 RED:    I/J/L = Thrust/Turn            B = Fire         K = Special   6 = Weapon", keyFont, white, cx, y)
+        y <- y + 15.0f
+        g.DrawString("P4 YELLOW: T/F/H = Thrust/Turn            Y = Fire         G = Special   5 = Weapon", keyFont, white, cx, y)

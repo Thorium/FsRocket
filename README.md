@@ -50,11 +50,12 @@ dotnet fsi test.fsx
 
 | Player       | Thrust          | Left            | Right           | Special (Down) | Fire           | Switch weapon |
 |--------------|-----------------|-----------------|-----------------|----------------|----------------|---------------|
-| P1 (Blue)    | Up / NumPad8    | Left / NumPad4  | Right / NumPad6 | Down / NumPad5 | RShift / Enter | `9`           |
+| P1 (Blue)    | Up / NumPad8    | Left / NumPad4  | Right / NumPad6 | Down / NumPad5 | Shift / Enter  | `9`           |
 | P2 (Green)   | W               | A               | D               | S              | Tab            | `1`           |
 | P3 (Red)     | I               | J               | L               | K              | B              | `6`           |
+| P4 (Yellow)  | T               | F               | H               | G              | Y              | `5`           |
 
-The main gun fires with the **Fire** key; the **Special** weapon fires with the **Down** key. The weapon-switch keys (`9`/`1`/`6`, placed near each player's hands) cycle the special weapon — by default **only while parked on a base**.
+The main gun fires with the **Fire** key; the **Special** weapon fires with the **Down** key. The weapon-switch keys (`9`/`1`/`6`/`5`, placed near each player's hands) cycle the special weapon — by default **only while parked on a base**.
 
 **Global keys:** `1`-`4` set the player count (in the menu), `F5`/`F6` change level, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F11` toggles fullscreen, `Space` starts a round, `Escape` returns to the menu / quits.
 
