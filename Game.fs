@@ -918,6 +918,24 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                     np <- { np with
                                                 VelX = np.VelX + ent.VelX * impulsePerSpeed * shieldScale
                                                 VelY = np.VelY + ent.VelY * impulsePerSpeed * shieldScale }
+                                    // A parked ("based") victim is unseated — the pad is
+                                    // slippery for campers. The pad's rest-snap re-seats and
+                                    // zeroes the velocity of any non-thrusting ship within
+                                    // BaseLandReach every tick, so a velocity kick alone
+                                    // would be cancelled: lift the ship clear of the scan
+                                    // reach and add an upward kick so the sideways momentum
+                                    // above actually slides it. Strictly gated on OnBase
+                                    // (parked + refueling); flying ships near a pad keep
+                                    // normal landing physics.
+                                    if np.OnBase then
+                                        let impulseMag =
+                                            sqrt (ent.VelX * ent.VelX + ent.VelY * ent.VelY)
+                                            * impulsePerSpeed * shieldScale
+                                        let upKick = max BasedHitUpwardKickMin (impulseMag * BasedHitUpwardKickScale)
+                                        np <- { np with
+                                                    PosY = max 0.0 (np.PosY - BasedHitUnseatLift * PositionScale)
+                                                    VelY = np.VelY - upKick
+                                                    OnBase = false }
                                 | _ ->
                                     // Divisor is in player-velocity units (world px/tick). The
                                     // heavy blasts fold in PositionScale to stay gentle; other
