@@ -1350,19 +1350,33 @@ let gameTick (gs: GameState) : GameState =
     // Player-player collision
     let players = checkPlayerCollision players gs.NumPlayers
 
-    // Respawn dead players after 90 ticks (~2.5 seconds)
+    // Dead players: AnimAngle counts the ticks since death. With respawn on
+    // (the default) the ship respawns after 90 ticks (~2.5 seconds); with
+    // respawn off it stays dead for the rest of the round.
     let players =
         // Bases occupied by live players — a respawning ship must avoid all of them
         let occupied = players |> List.choose (fun p -> if p.Alive && p.SpawnIndex >= 0 then Some p.SpawnIndex else None)
         players |> List.mapi (fun i p ->
             if i < gs.NumPlayers && not p.Alive then
                 let a = p.AnimAngle + 1.0
-                if a > 90.0 then
+                if a > 90.0 && gs.RespawnOnDeath then
                     let spawned, _ = spawnPlayerExcluding gs.Rng gs.Level occupied p
                     spawned
                 else
                     { p with AnimAngle = a }
             else p)
+
+    // Last-man-standing: with respawn off in a multiplayer round, end the round
+    // (back to the menu, like Escape) once at most one ship is left alive —
+    // after the same ~2.5-second grace the respawn timer would have used, so
+    // the final explosion plays out first.
+    let roundActive =
+        if gs.RespawnOnDeath || gs.NumPlayers < 2 then gs.RoundActive
+        else
+            let active = players |> List.truncate gs.NumPlayers
+            let aliveCount = active |> List.filter (fun p -> p.Alive) |> List.length
+            let graceOver = active |> List.forall (fun p -> p.Alive || p.AnimAngle > 90.0)
+            if aliveCount <= 1 && graceOver then false else gs.RoundActive
 
     // TerrainDirty is consumed by the renderer on the next frame;
     // it must NOT be cleared here — the renderer checks it once
@@ -1371,6 +1385,7 @@ let gameTick (gs: GameState) : GameState =
         Players = players
         Entities = entities
         Particles = particles @ collisionParts
+        RoundActive = roundActive
         TerrainDirty = terrainDirty }
 
 // ─── Init Round ────────────────────────────────────────────────────────

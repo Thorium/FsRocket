@@ -96,4 +96,5 @@ type GameState =
       Level: Terrain.LevelData option
       LevelFilePath: string       // Full path to current .LEV file (empty = no terrain)
       TerrainDirty: bool
-      WeaponSwitchOnlyOnBase: bool }  // Default: special weapon can only be changed while parked on a base
+      WeaponSwitchOnlyOnBase: bool  // Default: special weapon can only be changed while parked on a base
+      RespawnOnDeath: bool }        // Default: destroyed ships respawn after a short delay; off = ships stay dead and the round ends when at most one is left
