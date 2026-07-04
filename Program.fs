@@ -9,7 +9,7 @@
 ///   Player 4 (YELLOW): I/J/L/K/B (Thrust/Left/Right/Down/Fire)
 ///
 ///   1-4: Set player count (menu only)
-///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 5, P4 = 6
+///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 4 back / 5 fwd, P4 = 6 back / 7 fwd
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Toggle "change weapons only on bases"
 ///   F5/F6: Prev/next level
@@ -175,13 +175,15 @@ type GameForm() as this =
         | Keys.D4 when not gs.RoundActive -> humanCount <- 4; applyPlayerCount ()
         // Weapon switch on a number key near each player's controls:
         //   P1 (left: WASD) = 1 back / 2 fwd, P2 (right: arrows/numpad) = 8 back / 9 fwd,
-        //   P3 (left: TFGH) = 5, P4 (right: IJKL) = 6
+        //   P3 (left: TFGH) = 4 back / 5 fwd, P4 (right: IJKL) = 6 back / 7 fwd
         | Keys.D1 when gs.RoundActive -> gs <- cycleWeapon gs 0 (-1)
         | Keys.D2 when gs.RoundActive -> gs <- cycleWeapon gs 0 1
         | Keys.D8 when gs.RoundActive -> gs <- cycleWeapon gs 1 (-1)
         | Keys.D9 when gs.RoundActive -> gs <- cycleWeapon gs 1 1
+        | Keys.D4 when gs.RoundActive -> gs <- cycleWeapon gs 2 (-1)
         | Keys.D5 when gs.RoundActive -> gs <- cycleWeapon gs 2 1
-        | Keys.D6 when gs.RoundActive -> gs <- cycleWeapon gs 3 1
+        | Keys.D6 when gs.RoundActive -> gs <- cycleWeapon gs 3 (-1)
+        | Keys.D7 when gs.RoundActive -> gs <- cycleWeapon gs 3 1
         // Toggle the "change weapons only on bases" rule
         | Keys.F9 -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
         | Keys.F5 -> switchLevel -1

@@ -657,8 +657,8 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         y <- y + 16.0f
         let weaponRule =
             if gs.WeaponSwitchOnlyOnBase
-            then "Weapon switch (P1=1/2 P2=8/9 P3=5 P4=6): ONLY while landed on a base   [F9 to change]"
-            else "Weapon switch (P1=1/2 P2=8/9 P3=5 P4=6): anytime   [F9 to require a base]"
+            then "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): ONLY while landed on a base   [F9 to change]"
+            else "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): anytime   [F9 to require a base]"
         g.DrawString(weaponRule, subFont, cyan, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
@@ -667,6 +667,6 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         y <- y + 15.0f
         g.DrawString("P2 GREEN:  Arrows/NumPad = Thrust/Turn    Shift = Fire     Down = Special   8/9 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
-        g.DrawString("P3 RED:    T/F/H = Thrust/Turn            Y = Fire         G = Special   5 = Weapon", keyFont, white, cx, y)
+        g.DrawString("P3 RED:    T/F/H = Thrust/Turn            Y = Fire         G = Special   4/5 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
-        g.DrawString("P4 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Special   6 = Weapon", keyFont, white, cx, y)
+        g.DrawString("P4 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Special   6/7 = Weapon", keyFont, white, cx, y)
