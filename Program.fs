@@ -97,6 +97,12 @@ let private designH = 600.0
 let mutable private viewW = 0
 let mutable private viewH = 0
 
+/// Render only when something could have changed (a game step ran, a key was
+/// pressed, the window resized, a level loaded) — the simulation is a fixed
+/// 36 Hz step, so re-rendering identical state at 120+ Hz monitor refresh
+/// just burns CPU/GPU.
+let mutable private needsRender = true
+
 /// Size the canvas backing store from its displayed (CSS) size and derive the
 /// logical resolution. Called at startup and whenever the window is resized
 /// (including F11 fullscreen toggles, which fire a resize event).
@@ -118,6 +124,7 @@ let private resizeCanvas () =
         setCanvasW canvas (floor (cw * dpr))
         setCanvasH canvas (floor (ch * dpr))
         setCtxScale ctx (dpr * zoom)
+        needsRender <- true   // resizing clears the canvas backing store
 
 let mutable private gs = createGameState 2
 let mutable private humanCount = 2
@@ -141,7 +148,9 @@ let private applyPlayerCount () =
 let private activate (i: int) =
     if i >= 0 && i < levels.Count then
         current <- i
+        markAllDirty ()   // wholesale pixel change — repaint the terrain bitmap
         gs <- { gs with Level = Some levels[i].Data; LevelFilePath = levels[i].Data.Name; RoundActive = false; TerrainDirty = true }
+        needsRender <- true
 
 /// Add a level to the rotation and make it active. The first uploaded level
 /// replaces the bundled demo so the rotation becomes the player's own maps.
@@ -157,6 +166,7 @@ let private resetActiveTerrain () =
     if current >= 0 && current < levels.Count then
         let ll = levels[current]
         Array.blit ll.Pristine 0 ll.Data.Pixels 0 ll.Pristine.Length
+        markAllDirty ()   // wholesale pixel change — repaint the terrain bitmap
         gs <- { gs with TerrainDirty = true }
 
 /// The .LEV maps shipped in public/ and fetched at startup (F5/F6 cycles them).
@@ -211,50 +221,106 @@ let private cycleWeapon (playerIdx: int) (dir: int) =
             let np = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
             gs <- { gs with Players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then np else pl) }
 
+// ─── Gamepads ───────────────────────────────────────────────────────────────
+// Connected gamepads claim human player slots in order: pad 1 drives P1,
+// pad 2 drives P2, and so on; the remaining humans keep their per-slot
+// keyboard mappings (P2 is always arrows, etc.). Pad input is OR-merged with
+// the keys, so the keyboard keeps working for a pad-driven player and with no
+// pads connected nothing changes. Buttons follow the W3C "standard" mapping:
+// 0=A 1=B 2=X 4=LB 5=RB 6=LT 7=RT 9=Start 12-15=DPad, axes 0/1=left stick.
+
+/// Connected gamepads in slot order (holes from unplugged pads filtered out).
+[<Emit("navigator.getGamepads ? Array.prototype.filter.call(navigator.getGamepads(), g => g && g.connected) : []")>]
+let private connectedGamepads () : obj[] = jsNative
+[<Emit("$0.buttons[$1] ? $0.buttons[$1].pressed : false")>]
+let private padButton (pad: obj) (i: int) : bool = jsNative
+[<Emit("$0.axes[$1] || 0")>]
+let private padAxis (pad: obj) (i: int) : float = jsNative
+
+let private stickDeadzone = 0.35
+
+/// Previous LB/RB/Start state per pad slot, for edge-triggered actions
+/// (weapon cycling and starting a round fire once per press, not per tick).
+let mutable private padPrev = Array.create 4 (false, false, false)
+
+/// Edge-triggered gamepad buttons: LB/RB cycle the special weapon, Start
+/// begins a round from the menu. Runs once per fixed step, before mapInputs.
+let private pollPadButtons () =
+    let pads = if gs.GamepadsEnabled then connectedGamepads () else [||]
+    for i in 0 .. min (pads.Length - 1) 3 do
+        let pad = pads[i]
+        let wPrev = padButton pad 4
+        let wNext = padButton pad 5
+        let start = padButton pad 9
+        let (pw, pn, ps) = padPrev[i]
+        let isHuman = i < gs.NumPlayers && not gs.Players[i].IsCpu
+        if isHuman && wPrev && not pw then cycleWeapon i -1
+        if isHuman && wNext && not pn then cycleWeapon i 1
+        if start && not ps && not gs.RoundActive then
+            resetActiveTerrain ()   // reset ammo damage before the round
+            gs <- initRound gs
+            needsRender <- true
+        padPrev[i] <- (wPrev, wNext, start)
+
 // ─── Input ─────────────────────────────────────────────────────────────────
 let private mapInputs () =
     let has (c: string) = keys.Contains c
+    let pads = if gs.GamepadsEnabled then connectedGamepads () else [||]
     let players =
         gs.Players
         |> List.mapi (fun i p ->
             if p.IsCpu then p
             else
-                match i with
-                | 0 when gs.NumPlayers >= 1 ->
+                let p =
+                    match i with
+                    | 0 when gs.NumPlayers >= 1 ->
+                        { p with
+                            KeyUp = has "KeyW"
+                            KeyLeft = has "KeyA"
+                            KeyRight = has "KeyD"
+                            KeyDown = has "KeyS"
+                            KeyFire = has "Tab" }
+                    | 1 when gs.NumPlayers >= 2 ->
+                        { p with
+                            KeyUp = has "ArrowUp" || has "Numpad8"
+                            KeyLeft = has "ArrowLeft" || has "Numpad4"
+                            KeyRight = has "ArrowRight" || has "Numpad6"
+                            KeyDown = has "ArrowDown" || has "Numpad5"
+                            KeyFire = has "ShiftRight" || has "Enter" }
+                    | 2 when gs.NumPlayers >= 3 ->
+                        { p with
+                            KeyUp = has "KeyT"
+                            KeyLeft = has "KeyF"
+                            KeyRight = has "KeyH"
+                            KeyDown = has "KeyG"
+                            KeyFire = has "KeyY" }
+                    | 3 when gs.NumPlayers >= 4 ->
+                        { p with
+                            KeyUp = has "KeyI"
+                            KeyLeft = has "KeyJ"
+                            KeyRight = has "KeyL"
+                            KeyDown = has "KeyK"
+                            KeyFire = has "KeyB" }
+                    | _ -> p
+                // Gamepad i drives player i, merged on top of the keys
+                if i < pads.Length && i < 4 then
+                    let pad = pads[i]
+                    let axX = padAxis pad 0
+                    let axY = padAxis pad 1
                     { p with
-                        KeyUp = has "KeyW"
-                        KeyLeft = has "KeyA"
-                        KeyRight = has "KeyD"
-                        KeyDown = has "KeyS"
-                        KeyFire = has "Tab" }
-                | 1 when gs.NumPlayers >= 2 ->
-                    { p with
-                        KeyUp = has "ArrowUp" || has "Numpad8"
-                        KeyLeft = has "ArrowLeft" || has "Numpad4"
-                        KeyRight = has "ArrowRight" || has "Numpad6"
-                        KeyDown = has "ArrowDown" || has "Numpad5"
-                        KeyFire = has "ShiftRight" || has "Enter" }
-                | 2 when gs.NumPlayers >= 3 ->
-                    { p with
-                        KeyUp = has "KeyT"
-                        KeyLeft = has "KeyF"
-                        KeyRight = has "KeyH"
-                        KeyDown = has "KeyG"
-                        KeyFire = has "KeyY" }
-                | 3 when gs.NumPlayers >= 4 ->
-                    { p with
-                        KeyUp = has "KeyI"
-                        KeyLeft = has "KeyJ"
-                        KeyRight = has "KeyL"
-                        KeyDown = has "KeyK"
-                        KeyFire = has "KeyB" }
-                | _ -> p)
+                        KeyUp = p.KeyUp || padButton pad 0 || padButton pad 12 || axY < -0.5
+                        KeyLeft = p.KeyLeft || padButton pad 14 || axX < -stickDeadzone
+                        KeyRight = p.KeyRight || padButton pad 15 || axX > stickDeadzone
+                        KeyDown = p.KeyDown || padButton pad 2 || padButton pad 6
+                        KeyFire = p.KeyFire || padButton pad 1 || padButton pad 7 }
+                else p)
     gs <- { gs with Players = players }
 
 let private onKeyDown (e: obj) =
     let code = evCode e
     keys.Add code |> ignore
     preventDefault e
+    needsRender <- true   // menu toggles/level switches change state between steps
     match code with
     | "Escape" -> if gs.RoundActive then gs <- { gs with RoundActive = false }
     | "Space" ->
@@ -276,6 +342,7 @@ let private onKeyDown (e: obj) =
     | "Digit6" when gs.RoundActive -> cycleWeapon 3 (-1)
     | "Digit7" when gs.RoundActive -> cycleWeapon 3 1
     | "F9" -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+    | "F10" -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
     // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
     | "F4" when not gs.RoundActive -> gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
     | "F5" -> switchLevel -1
@@ -297,11 +364,15 @@ let rec private loop (ts: float) =
     lastTime <- ts
     acc <- acc + min dt 200.0   // clamp to avoid spiral-of-death after a stall
     while acc >= frameMs do
+        pollPadButtons ()
         mapInputs ()
         if gs.RoundActive then gs <- gameTick gs
         acc <- acc - frameMs
-    renderFrame ctx gs viewW viewH
-    if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
+        needsRender <- true
+    if needsRender then
+        renderFrame ctx gs viewW viewH
+        if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
+        needsRender <- false
     requestFrame loop
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 A local multiplayer 2D arena combat game written in F#
 Up to 4 players pilot ships in a split-screen arena, fighting with 21 different weapons over destructible VGA-style terrain.
 
-**▶ Play online: https://thorium.github.io/FsRocket/** — runs entirely in the browser, with the F# game logic compiled to JavaScript by [Fable](https://fable.io/) 5.0.0 and rendered on an HTML5 canvas.
+**▶ Play online: https://thorium.github.io/FsRocket/** — runs entirely in the browser, with the F# game logic compiled to JavaScript by [Fable](https://fable.io/) 5.6.0 and rendered on an HTML5 canvas.
 
 
 Inspired heavily by the Finnish rocket game lineage: 
@@ -35,7 +35,7 @@ This is the **`FableWeb`** branch — the browser version (Fable + HTML5 Canvas)
 
 ## Build & Run
 
-The browser front-end is built with [Fable](https://fable.io/) **5.0.0** (F# → JavaScript) and Vite.
+The browser front-end is built with [Fable](https://fable.io/) **5.6.0** (F# → JavaScript) and Vite.
 
 ```
 dotnet tool restore     # installs the Fable compiler (pinned in .config/dotnet-tools.json)
@@ -61,7 +61,9 @@ Deployment to GitHub Pages (https://thorium.github.io/FsRocket/) is automated by
 | P3 (Red)     | T               | F               | H               | G              | Y              | `4` back / `5` fwd |
 | P4 (Yellow)  | I               | J               | L               | K              | B              | `6` back / `7` fwd |
 
-**Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `Space` starts a round, `Escape` resets to the menu.
+**Gamepads:** connected gamepads (W3C standard mapping) claim human players in order — pad 1 drives P1, pad 2 drives P2, and so on; remaining players keep their keyboard mappings, and the keyboard also stays active for pad-driven players. Left stick / D-Pad = turn, `A` (or D-Pad up) = thrust, `B`/`RT` = fire, `X`/`LT` = special, `LB`/`RB` = cycle weapon, `Start` = begin round. Useful on membrane keyboards, whose limited key rollover can't report 3-4 players' simultaneous keys. `F10` toggles gamepad input off/on entirely (e.g. to ignore a drifting controller that is left connected).
+
+**Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F10` toggles gamepad input, `Space` starts a round, `Escape` resets to the menu.
 
 By default the special weapon can only be changed while **parked on a base**; the per-player keys above cycle it. Use the **Upload a .LEV map** button under the canvas to load your own maps.
 

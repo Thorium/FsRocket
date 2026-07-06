@@ -35,6 +35,8 @@ let private createImageData (ctx: obj) (w: int) (h: int) : obj = jsNative
 let private imgBytes (img: obj) : byte[] = jsNative
 [<Emit("$0.putImageData($1, 0, 0)")>]
 let private putImageData (ctx: obj) (img: obj) : unit = jsNative
+[<Emit("$0.putImageData($1, 0, 0, $2, $3, $4, $5)")>]
+let private putImageDataRect (ctx: obj) (img: obj) (x: int) (y: int) (w: int) (h: int) : unit = jsNative
 
 [<Emit("$0.fillStyle = $1")>]
 let private setFill (ctx: obj) (c: string) : unit = jsNative
@@ -189,37 +191,55 @@ let private buildVgaPalette () : int array =
 let vgaPalette = buildVgaPalette ()
 
 // ─── Terrain offscreen-canvas cache ──────────────────────────────────────
-let mutable private terrainCanvas: obj option = None
+// One persistent offscreen canvas + ImageData, rebuilt in full only when the
+// level changes. In-round ammo damage is patched incrementally from the dirty
+// rect Terrain.eraseTerrainCircle accumulates, and the canvas is resolved ONCE
+// per frame in renderFrame — every viewport and minimap shares it. (Rebuilding
+// the full 320x400 bitmap per viewport per dirty frame was the 4-player
+// performance killer.)
+let mutable private terrainCanvas: obj = null
+let mutable private terrainCtx: obj = null
+let mutable private terrainImg: obj = null
 let mutable private terrainCanvasLevel: string = ""
 
-let private buildTerrainCanvas (level: LevelData) : obj =
-    let canvas = newCanvas ()
-    setCanvasW canvas MapWidth
-    setCanvasH canvas MapHeight
-    let tctx = get2d canvas
-    let img = createImageData tctx MapWidth MapHeight
-    let data = imgBytes img
-    for i in 0 .. MapWidth * MapHeight - 1 do
-        let pixel = level.Pixels[i]
-        // Bases (landing pads) get a fixed, recognizable colour so players can
-        // spot where to land, heal and swap weapons.
-        let argb = if isBase pixel then basePadArgb else vgaPalette[int pixel]
-        let j = i * 4
-        data[j] <- byte ((argb >>> 16) &&& 0xFF)
-        data[j + 1] <- byte ((argb >>> 8) &&& 0xFF)
-        data[j + 2] <- byte (argb &&& 0xFF)
-        data[j + 3] <- 255uy
-    putImageData tctx img
-    canvas
+/// Paint level pixels into the cached ImageData over an inclusive rect.
+let private paintTerrainRect (level: LevelData) (x0: int) (y0: int) (x1: int) (y1: int) =
+    let data = imgBytes terrainImg
+    for y in y0 .. y1 do
+        let rowBase = y * MapWidth
+        for x in x0 .. x1 do
+            let i = rowBase + x
+            let pixel = level.Pixels[i]
+            // Bases (landing pads) get a fixed, recognizable colour so players
+            // can spot where to land, heal and swap weapons.
+            let argb = if isBase pixel then basePadArgb else vgaPalette[int pixel]
+            let j = i * 4
+            data[j] <- byte ((argb >>> 16) &&& 0xFF)
+            data[j + 1] <- byte ((argb >>> 8) &&& 0xFF)
+            data[j + 2] <- byte (argb &&& 0xFF)
+            data[j + 3] <- 255uy
 
-let private getTerrainCanvas (level: LevelData) (terrainDirty: bool) : obj =
-    match terrainCanvas with
-    | Some c when terrainCanvasLevel = level.Name && not terrainDirty -> c
-    | _ ->
-        let c = buildTerrainCanvas level
-        terrainCanvas <- Some c
+let private currentTerrainCanvas (level: LevelData) (terrainDirty: bool) : obj =
+    if isNull terrainCanvas || terrainCanvasLevel <> level.Name then
+        terrainCanvas <- newCanvas ()
+        setCanvasW terrainCanvas MapWidth
+        setCanvasH terrainCanvas MapHeight
+        terrainCtx <- get2d terrainCanvas
+        terrainImg <- createImageData terrainCtx MapWidth MapHeight
         terrainCanvasLevel <- level.Name
-        c
+        Terrain.takeDirtyRect () |> ignore   // superseded by the full paint
+        paintTerrainRect level 0 0 (MapWidth - 1) (MapHeight - 1)
+        putImageData terrainCtx terrainImg
+    elif terrainDirty then
+        match Terrain.takeDirtyRect () with
+        | Some (x0, y0, x1, y1) ->
+            paintTerrainRect level x0 y0 x1 y1
+            putImageDataRect terrainCtx terrainImg x0 y0 (x1 - x0 + 1) (y1 - y0 + 1)
+        | None ->
+            // Dirty with no recorded rect (defensive): repaint everything
+            paintTerrainRect level 0 0 (MapWidth - 1) (MapHeight - 1)
+            putImageData terrainCtx terrainImg
+    terrainCanvas
 
 // ─── Layout: viewports for 1-4 players ───────────────────────────────────
 let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
@@ -250,7 +270,9 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
     | _ -> [||]
 
 // ─── Draw a single player's viewport ─────────────────────────────────────
-let drawPlayerView (ctx: obj) (gs: GameState) (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) =
+// tcanvas is the terrain canvas already resolved for this frame (null when the
+// game runs without a level).
+let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) =
     let hudH = 36
     let gameH = vh - hudH
     let p = gs.Players[playerIdx]
@@ -266,8 +288,7 @@ let drawPlayerView (ctx: obj) (gs: GameState) (playerIdx: int) (vx: int) (vy: in
     fillRectC ctx fvx fvy fvw fgameH bgColor
 
     match gs.Level with
-    | Some level ->
-        let tcanvas = getTerrainCanvas level gs.TerrainDirty
+    | Some _ ->
         let srcX = max 0 (int camX)
         let srcY = max 0 (int camY)
         let srcW = min (MapWidth - srcX) (int (float vw / effScale) + 1)
@@ -445,8 +466,7 @@ let drawPlayerView (ctx: obj) (gs: GameState) (playerIdx: int) (vx: int) (vy: in
     let mmY = fvy + 4.0
     fillRectC ctx mmX mmY mmW mmH (cssRGBA 8 8 16 160)
     match gs.Level with
-    | Some level ->
-        let tcanvas = getTerrainCanvas level gs.TerrainDirty
+    | Some _ ->
         drawImage9 ctx tcanvas 0.0 0.0 (float MapWidth) (float MapHeight) mmX mmY mmW mmH
     | None ->
         for w in arenaWalls do
@@ -519,11 +539,18 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
     setBaseline ctx "top"
     fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
 
+    // Resolve (and, if terrain changed, patch) the terrain canvas once for the
+    // whole frame — all viewports and minimaps draw from the same bitmap.
+    let tcanvas =
+        match gs.Level with
+        | Some level -> currentTerrainCanvas level gs.TerrainDirty
+        | None -> null
+
     let layouts = viewportLayout gs.NumPlayers windowW windowH
     for i in 0 .. gs.NumPlayers - 1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
-            drawPlayerView ctx gs i vx vy vw vh
+            drawPlayerView ctx gs tcanvas i vx vy vw vh
             drawBorder ctx vx vy vw vh i
 
     if not gs.RoundActive then
@@ -551,6 +578,12 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
             then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
             else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
         drawText ctx respawnRule cx y subFont "rgb(144,192,255)"
+        y <- y + 18.0
+        let gamepadRule =
+            if gs.GamepadsEnabled
+            then "Gamepads: ON — pad N drives P-N, keyboard still works   [F10 to disable]"
+            else "Gamepads: OFF — keyboard only   [F10 to enable]"
+        drawText ctx gamepadRule cx y subFont "rgb(144,192,255)"
         y <- y + 28.0
         drawText ctx "Controls:" cx y subFont "rgb(255,255,128)"
         y <- y + 18.0
@@ -561,3 +594,5 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
         drawText ctx "P3: T/F/H = Thrust/Turn   Y = Fire   G = Special   4/5 = Weapon" cx y keyFont "rgb(255,255,255)"
         y <- y + 15.0
         drawText ctx "P4: I/J/L = Thrust/Turn   B = Fire   K = Special   6/7 = Weapon" cx y keyFont "rgb(255,255,255)"
+        y <- y + 15.0
+        drawText ctx "Gamepad: Stick/DPad = Turn   A = Thrust   B/RT = Fire   X/LT = Special   LB/RB = Weapon   Start = Begin" cx y keyFont "rgb(160,255,160)"

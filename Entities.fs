@@ -53,7 +53,8 @@ let createGameState (numPlayers: int) : GameState =
       LevelFilePath = ""
       TerrainDirty = false
       WeaponSwitchOnlyOnBase = true
-      RespawnOnDeath = true }
+      RespawnOnDeath = true
+      GamepadsEnabled = true }
 
 // ─── Spawn a player at random position ─────────────────────────────────
 
