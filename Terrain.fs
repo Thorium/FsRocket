@@ -5,7 +5,9 @@
 module FsRocket.Terrain
 
 open System
+#if !FABLE_COMPILER
 open System.IO
+#endif
 open FsRocket.Physics
 
 // ─── Constants ─────────────────────────────────────────────────────────
@@ -97,16 +99,21 @@ let decompressPage (src: byte array) (srcOffset: int) (dest: byte array) (destOf
 
     si  // Return new source offset (where we stopped reading)
 
+/// Read a little-endian uint16 from a byte array (avoids BitConverter so the
+/// code transpiles cleanly under Fable as well as on .NET).
+let inline private readU16LE (data: byte array) (offset: int) : int =
+    int data[offset] ||| (int data[offset + 1] <<< 8)
+
 /// Decompress a .LEV file into a 320x400 pixel array + 4 viewport words
 let decompressLevel (data: byte array) : byte array * (int * int * int * int) =
     // Last 8 bytes are 4 LE uint16 viewport words
     let compressedSize = data.Length - 8
 
     // Read viewport words from last 8 bytes
-    let vp0 = int (BitConverter.ToUInt16(data, compressedSize))
-    let vp1 = int (BitConverter.ToUInt16(data, compressedSize + 2))
-    let vp2 = int (BitConverter.ToUInt16(data, compressedSize + 4))
-    let vp3 = int (BitConverter.ToUInt16(data, compressedSize + 6))
+    let vp0 = readU16LE data compressedSize
+    let vp1 = readU16LE data (compressedSize + 2)
+    let vp2 = readU16LE data (compressedSize + 4)
+    let vp3 = readU16LE data (compressedSize + 6)
 
     let pixels = Array.zeroCreate<byte> (MapWidth * MapHeight)
 
@@ -218,16 +225,22 @@ let findSpawnPoints (pixels: byte array) : SpawnPoint array =
 
 // ─── Load a .LEV File ──────────────────────────────────────────────────
 
-let loadLevel (filePath: string) : LevelData =
-    let data = File.ReadAllBytes filePath
+/// Build level data from raw .LEV bytes. Pure (no file IO) so it works both on
+/// .NET and under Fable, where the bytes are fetched over HTTP instead.
+let loadLevelFromBytes (name: string) (data: byte array) : LevelData =
     let pixels, viewports = decompressLevel data
     let spawns = findSpawnPoints pixels
-    let name = Path.GetFileNameWithoutExtension filePath
-
     { Pixels = pixels
       Viewports = viewports
       SpawnPoints = spawns
       Name = name }
+
+#if !FABLE_COMPILER
+/// Read a .LEV file from disk (desktop builds only — Fable has no file system).
+let loadLevel (filePath: string) : LevelData =
+    let data = File.ReadAllBytes filePath
+    loadLevelFromBytes (Path.GetFileNameWithoutExtension filePath) data
+#endif
 
 // ─── Terrain Queries for Game Logic ────────────────────────────────────
 
@@ -264,6 +277,42 @@ let randomSpawnExcluding (spawns: SpawnPoint array) (rng: Random) (occupied: int
 
 // ─── Terrain Modification (ammo erasing walls) ────────────────────────
 
+// Dirty-region tracking: eraseTerrainCircle accumulates a bounding rect of
+// the pixels it changes so a renderer can repaint just that region instead
+// of rebuilding the whole 320x400 bitmap. Empty is encoded as x1 < x0.
+let mutable private dirtyX0 = 0
+let mutable private dirtyY0 = 0
+let mutable private dirtyX1 = -1
+let mutable private dirtyY1 = -1
+
+let private markDirty (x0: int) (y0: int) (x1: int) (y1: int) =
+    let x0 = max 0 x0
+    let y0 = max 0 y0
+    let x1 = min (MapWidth - 1) x1
+    let y1 = min (MapHeight - 1) y1
+    if x1 >= x0 && y1 >= y0 then
+        if dirtyX1 < dirtyX0 then
+            dirtyX0 <- x0; dirtyY0 <- y0; dirtyX1 <- x1; dirtyY1 <- y1
+        else
+            dirtyX0 <- min dirtyX0 x0
+            dirtyY0 <- min dirtyY0 y0
+            dirtyX1 <- max dirtyX1 x1
+            dirtyY1 <- max dirtyY1 y1
+
+/// Mark the whole map dirty — call after wholesale pixel changes that bypass
+/// eraseTerrainCircle (level reset from the pristine copy, upload, switch).
+let markAllDirty () =
+    markDirty 0 0 (MapWidth - 1) (MapHeight - 1)
+
+/// Pop the accumulated dirty rect as inclusive (x0, y0, x1, y1), if any.
+let takeDirtyRect () : (int * int * int * int) option =
+    if dirtyX1 < dirtyX0 then None
+    else
+        let r = (dirtyX0, dirtyY0, dirtyX1, dirtyY1)
+        dirtyX1 <- -1
+        dirtyX0 <- 0
+        Some r
+
 /// Set a pixel in the terrain data. Does nothing for out-of-bounds.
 let inline setPixel (pixels: byte array) (x: int) (y: int) (value: byte) =
     if x >= 0 && x < MapWidth && y >= 0 && y < MapHeight then
@@ -288,4 +337,5 @@ let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: flo
                     if existing <> VoidColor && existing <> WaterColor && not (isBase existing) then
                         pixels[py * MapWidth + px] <- VoidColor
                         erased <- true
+    if erased then markDirty (ix - r) (iy - r) (ix + r) (iy + r)
     erased

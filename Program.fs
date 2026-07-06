@@ -14,6 +14,7 @@
 ///   F9: Toggle "change weapons only on bases"
 ///   F4: Toggle "respawn on death" (menu only) — off = last ship flying wins the round
 ///   F5/F6: Prev/next level
+///   F10: Toggle gamepad input (XInput pads claim players in order; keyboard stays active)
 ///   Space: Start round
 ///   Escape: Quit
 module FsRocket.Program
@@ -82,6 +83,84 @@ let cycleWeapon (gs: GameState) (playerIdx: int) (dir: int) : GameState =
             let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
             { gs with Players = players }
 
+// ─── Gamepads (XInput) ─────────────────────────────────────────────────
+// Connected gamepads claim human player slots in order: pad 1 drives P1,
+// pad 2 drives P2, and so on; the remaining humans keep their per-slot
+// keyboard mappings (P2 is always arrows, etc.). Pad input is OR-merged with
+// the keys, so the keyboard keeps working for a pad-driven player and with no
+// pads connected nothing changes. F10 disables gamepads entirely.
+
+module private XInput =
+    open System.Runtime.InteropServices
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type XINPUT_GAMEPAD =
+        struct
+            val mutable wButtons: uint16
+            val mutable bLeftTrigger: byte
+            val mutable bRightTrigger: byte
+            val mutable sThumbLX: int16
+            val mutable sThumbLY: int16
+            val mutable sThumbRX: int16
+            val mutable sThumbRY: int16
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type XINPUT_STATE =
+        struct
+            val mutable dwPacketNumber: uint32
+            val mutable Gamepad: XINPUT_GAMEPAD
+        end
+
+    [<DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")>]
+    extern uint32 XInputGetState(uint32 dwUserIndex, XINPUT_STATE& pState)
+
+    // wButtons bit flags
+    let DPAD_UP = 0x0001us
+    let DPAD_LEFT = 0x0004us
+    let DPAD_RIGHT = 0x0008us
+    let START = 0x0010us
+    let LB = 0x0100us
+    let RB = 0x0200us
+    let A = 0x1000us
+    let B = 0x2000us
+    let X = 0x4000us
+
+/// One gamepad's controls mapped to game inputs.
+type private PadInput =
+    { Up: bool; Left: bool; Right: bool; Fire: bool; Special: bool
+      WeaponPrev: bool; WeaponNext: bool; Start: bool }
+
+/// Left-stick deadzone (0.35 of full deflection) and trigger threshold.
+let private stickDeadzone = int16 (0.35 * 32767.0)
+let private triggerThreshold = 64uy
+
+/// Set false forever if the XInput DLL is missing (pre-Win8 systems).
+let mutable private xinputAvailable = true
+
+/// States of all connected pads, compacted in XInput user-index order so pad
+/// slots line up with player slots even when e.g. only controller 2 is on.
+let private connectedPads () : PadInput[] =
+    if not xinputAvailable then [||]
+    else
+        try
+            [| for i in 0u .. 3u do
+                let mutable state = XInput.XINPUT_STATE()
+                if XInput.XInputGetState(i, &state) = 0u then
+                    let gp = state.Gamepad
+                    let btn (b: uint16) = gp.wButtons &&& b <> 0us
+                    { Up = btn XInput.A || btn XInput.DPAD_UP || gp.sThumbLY > 16384s
+                      Left = btn XInput.DPAD_LEFT || gp.sThumbLX < -stickDeadzone
+                      Right = btn XInput.DPAD_RIGHT || gp.sThumbLX > stickDeadzone
+                      Fire = btn XInput.B || gp.bRightTrigger > triggerThreshold
+                      Special = btn XInput.X || gp.bLeftTrigger > triggerThreshold
+                      WeaponPrev = btn XInput.LB
+                      WeaponNext = btn XInput.RB
+                      Start = btn XInput.START } |]
+        with :? DllNotFoundException | :? EntryPointNotFoundException ->
+            xinputAvailable <- false
+            [||]
+
 // ─── Game Form ─────────────────────────────────────────────────────────
 
 type GameForm() as this =
@@ -98,6 +177,10 @@ type GameForm() as this =
 
     // Key state tracking (multiple simultaneous keys)
     let keyStates = System.Collections.Generic.HashSet<Keys>()
+
+    // Previous LB/RB/Start state per pad slot, for edge-triggered actions
+    // (weapon cycling and starting a round fire once per press, not per tick).
+    let padPrev = Array.create 4 (false, false, false)
 
     let totalPlayers () = min 4 (humanCount + cpuCount)
 
@@ -187,6 +270,8 @@ type GameForm() as this =
         | Keys.D7 when gs.RoundActive -> gs <- cycleWeapon gs 3 1
         // Toggle the "change weapons only on bases" rule
         | Keys.F9 -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+        // Toggle gamepad input (e.g. to ignore a drifting controller)
+        | Keys.F10 -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
         // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
         | Keys.F4 when not gs.RoundActive -> gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
         | Keys.F5 -> switchLevel -1
@@ -209,55 +294,79 @@ type GameForm() as this =
         base.OnKeyUp(e)
 
     member _.GameLoop() =
-        // Map key states to player inputs
-        this.MapInputs()
+        let pads = if gs.GamepadsEnabled then connectedPads () else [||]
+
+        // Edge-triggered gamepad buttons: LB/RB cycle the special weapon,
+        // Start begins a round from the menu.
+        pads |> Array.iteri (fun i pad ->
+            if i < 4 then
+                let (pw, pn, ps) = padPrev[i]
+                let isHuman = i < gs.NumPlayers && not gs.Players[i].IsCpu
+                if isHuman && pad.WeaponPrev && not pw then gs <- cycleWeapon gs i -1
+                if isHuman && pad.WeaponNext && not pn then gs <- cycleWeapon gs i 1
+                if pad.Start && not ps && not gs.RoundActive then gs <- initRound gs
+                padPrev[i] <- (pad.WeaponPrev, pad.WeaponNext, pad.Start))
+
+        // Map key states + held pad controls to player inputs
+        this.MapInputs(pads)
 
         if gs.RoundActive then
             gs <- gameTick gs
 
         this.Invalidate()
 
-    member _.MapInputs() =
+    member private _.MapInputs(pads: PadInput[]) =
         let has k = keyStates.Contains(k)
 
         let players =
             gs.Players |> List.mapi (fun i p ->
                 if p.IsCpu then p  // CPU players get input from AI, not keyboard
                 else
-                match i with
-                | 0 when gs.NumPlayers >= 1 ->
-                    // Player 1 (BLUE): WASD + Tab
+                let p =
+                    match i with
+                    | 0 when gs.NumPlayers >= 1 ->
+                        // Player 1 (BLUE): WASD + Tab
+                        { p with
+                            KeyUp    = has Keys.W
+                            KeyLeft  = has Keys.A
+                            KeyRight = has Keys.D
+                            KeyDown  = has Keys.S
+                            KeyFire  = has Keys.Tab }
+                    | 1 when gs.NumPlayers >= 2 ->
+                        // Player 2 (GREEN): Arrow keys / NumPad + Shift
+                        { p with
+                            KeyUp    = has Keys.Up    || has Keys.NumPad8
+                            KeyLeft  = has Keys.Left  || has Keys.NumPad4
+                            KeyRight = has Keys.Right || has Keys.NumPad6
+                            KeyDown  = has Keys.Down  || has Keys.NumPad5
+                            KeyFire  = has Keys.ShiftKey || has Keys.Enter }
+                    | 2 when gs.NumPlayers >= 3 ->
+                        // Player 3 (RED): TFGH + Y
+                        { p with
+                            KeyUp    = has Keys.T
+                            KeyLeft  = has Keys.F
+                            KeyRight = has Keys.H
+                            KeyDown  = has Keys.G
+                            KeyFire  = has Keys.Y }
+                    | 3 when gs.NumPlayers >= 4 ->
+                        // Player 4 (YELLOW): IJKL + B
+                        { p with
+                            KeyUp    = has Keys.I
+                            KeyLeft  = has Keys.J
+                            KeyRight = has Keys.L
+                            KeyDown  = has Keys.K
+                            KeyFire  = has Keys.B }
+                    | _ -> p
+                // Gamepad i drives player i, merged on top of the keys
+                if i < pads.Length then
+                    let pad = pads[i]
                     { p with
-                        KeyUp    = has Keys.W
-                        KeyLeft  = has Keys.A
-                        KeyRight = has Keys.D
-                        KeyDown  = has Keys.S
-                        KeyFire  = has Keys.Tab }
-                | 1 when gs.NumPlayers >= 2 ->
-                    // Player 2 (GREEN): Arrow keys / NumPad + Shift
-                    { p with
-                        KeyUp    = has Keys.Up    || has Keys.NumPad8
-                        KeyLeft  = has Keys.Left  || has Keys.NumPad4
-                        KeyRight = has Keys.Right || has Keys.NumPad6
-                        KeyDown  = has Keys.Down  || has Keys.NumPad5
-                        KeyFire  = has Keys.ShiftKey || has Keys.Enter }
-                | 2 when gs.NumPlayers >= 3 ->
-                    // Player 3 (RED): TFGH + Y
-                    { p with
-                        KeyUp    = has Keys.T
-                        KeyLeft  = has Keys.F
-                        KeyRight = has Keys.H
-                        KeyDown  = has Keys.G
-                        KeyFire  = has Keys.Y }
-                | 3 when gs.NumPlayers >= 4 ->
-                    // Player 4 (YELLOW): IJKL + B
-                    { p with
-                        KeyUp    = has Keys.I
-                        KeyLeft  = has Keys.J
-                        KeyRight = has Keys.L
-                        KeyDown  = has Keys.K
-                        KeyFire  = has Keys.B }
-                | _ -> p)
+                        KeyUp    = p.KeyUp || pad.Up
+                        KeyLeft  = p.KeyLeft || pad.Left
+                        KeyRight = p.KeyRight || pad.Right
+                        KeyDown  = p.KeyDown || pad.Special
+                        KeyFire  = p.KeyFire || pad.Fire }
+                else p)
 
         gs <- { gs with Players = players }
 
