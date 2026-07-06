@@ -70,7 +70,9 @@ dotnet fsi test.fsx
 
 The main gun fires with the **Fire** key; the **Special** weapon fires with the **Down** key. The weapon-switch keys (placed near each player's hands) cycle the special weapon — by default **only while parked on a base**.
 
-**Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` change level, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F11` toggles fullscreen, `Space` starts a round, `Escape` returns to the menu / quits.
+**Gamepads (XInput):** connected controllers claim human players in order — pad 1 drives P1, pad 2 drives P2, and so on; remaining players keep their keyboard mappings, and the keyboard also stays active for pad-driven players. Left stick / D-Pad = turn, `A` (or D-Pad up) = thrust, `B`/`RT` = fire, `X`/`LT` = special, `LB`/`RB` = cycle weapon, `Start` = begin round. `F10` toggles gamepad input off/on entirely (e.g. to ignore a drifting controller). Useful on membrane keyboards, whose limited key rollover can't report 3-4 players' simultaneous keys.
+
+**Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` change level, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F10` toggles gamepad input, `F11` toggles fullscreen, `Space` starts a round, `Escape` returns to the menu / quits.
 
 ## Project Structure
 

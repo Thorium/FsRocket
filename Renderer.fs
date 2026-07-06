@@ -110,39 +110,56 @@ let private buildVgaPalette () : int array =
 let vgaPalette = buildVgaPalette ()
 
 // ─── Terrain Bitmap Cache ──────────────────────────────────────────────
+// One persistent bitmap, rebuilt in full only when the level changes.
+// In-round ammo damage is patched incrementally from the dirty rect
+// Terrain.eraseTerrainCircle accumulates, and the bitmap is resolved ONCE per
+// frame in renderFrame — every viewport and minimap shares it. (Disposing and
+// rebuilding the full 320x400 bitmap per viewport per dirty frame was the
+// 4-player performance killer.)
 
 let mutable private terrainBitmap: Bitmap option = None
 let mutable private terrainBitmapLevel: string = ""
 
-/// Build a Bitmap from terrain pixel data using the VGA palette
-let buildTerrainBitmap (level: LevelData) : Bitmap =
-    let bmp = new Bitmap(MapWidth, MapHeight, PixelFormat.Format32bppArgb)
-    let bmpData = bmp.LockBits(Rectangle(0, 0, MapWidth, MapHeight), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb)
-    let stride = bmpData.Stride
-    let strideInts = stride / 4  // stride in int32 units
-    let buf = Array.zeroCreate<int> (strideInts * MapHeight)
+/// Paint level pixels into the bitmap over an inclusive rect using the VGA
+/// palette (LockBits on just that sub-rectangle).
+let private paintTerrainRect (bmp: Bitmap) (level: LevelData) (x0: int) (y0: int) (x1: int) (y1: int) =
+    let w = x1 - x0 + 1
+    let h = y1 - y0 + 1
+    let bmpData = bmp.LockBits(Rectangle(x0, y0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb)
+    let strideInts = bmpData.Stride / 4  // stride in int32 units
+    let buf = Array.zeroCreate<int> (strideInts * h)
     let basePadArgb = basePadColor.ToArgb()
-    for y in 0 .. MapHeight - 1 do
-        for x in 0 .. MapWidth - 1 do
-            let pixel = level.Pixels[y * MapWidth + x]
+    for y in 0 .. h - 1 do
+        let srcRow = (y0 + y) * MapWidth + x0
+        let dstRow = y * strideInts
+        for x in 0 .. w - 1 do
+            let pixel = level.Pixels[srcRow + x]
             // Bases (landing pads) get a fixed, recognizable colour instead of the raw
             // palette shades so players can spot where to land, heal and swap weapons.
-            buf[y * strideInts + x] <- if isBase pixel then basePadArgb else vgaPalette[int pixel]
+            buf[dstRow + x] <- if isBase pixel then basePadArgb else vgaPalette[int pixel]
     Marshal.Copy(buf, 0, bmpData.Scan0, buf.Length)
     bmp.UnlockBits bmpData
-    bmp
 
-/// Get or create cached terrain bitmap for the current level.
-/// Rebuilds when level changes or when terrain has been modified by ammo.
-let getTerrainBitmap (level: LevelData) (terrainDirty: bool) : Bitmap =
-    if terrainBitmapLevel <> level.Name || terrainDirty then
+/// Resolve the terrain bitmap for this frame — full rebuild on level change,
+/// dirty-rect patch while terrain is being carved, otherwise the cache as-is.
+let currentTerrainBitmap (level: LevelData) (terrainDirty: bool) : Bitmap =
+    match terrainBitmap with
+    | Some bmp when terrainBitmapLevel = level.Name ->
+        if terrainDirty then
+            match Terrain.takeDirtyRect () with
+            | Some (x0, y0, x1, y1) -> paintTerrainRect bmp level x0 y0 x1 y1
+            | None ->
+                // Dirty with no recorded rect (defensive): repaint everything
+                paintTerrainRect bmp level 0 0 (MapWidth - 1) (MapHeight - 1)
+        bmp
+    | _ ->
         terrainBitmap |> Option.iter (fun b -> b.Dispose())
-        let bmp = buildTerrainBitmap level
+        let bmp = new Bitmap(MapWidth, MapHeight, PixelFormat.Format32bppArgb)
+        Terrain.takeDirtyRect () |> ignore   // superseded by the full paint
+        paintTerrainRect bmp level 0 0 (MapWidth - 1) (MapHeight - 1)
         terrainBitmap <- Some bmp
         terrainBitmapLevel <- level.Name
         bmp
-    else
-        terrainBitmap.Value
 
 // ─── Layout: viewports for 1-4 players ─────────────────────────────────
 
@@ -178,7 +195,9 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
 
 // ─── Draw a single player's viewport ──────────────────────────────────
 
-let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
+// tbmp is the terrain bitmap already resolved for this frame (null when the
+// game runs without a level).
+let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                    (vx: int) (vy: int) (vw: int) (vh: int) =
     let hudH = 36
     let gameH = vh - hudH
@@ -200,9 +219,8 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
 
     // Grid lines (every 32 pixels in arena)
     match gs.Level with
-    | Some level ->
+    | Some _ ->
         // Draw terrain bitmap (scaled with extra zoom)
-        let tbmp = getTerrainBitmap level gs.TerrainDirty
         // Source rect: visible portion of terrain in arena coords (adjusted for zoom)
         let effectiveScale = float Scale * TerrainZoom
         let srcX = max 0 (int camX)
@@ -526,8 +544,7 @@ let drawPlayerView (g: Graphics) (gs: GameState) (playerIdx: int)
 
     // Terrain preview on minimap
     match gs.Level with
-    | Some level ->
-        let tbmp = getTerrainBitmap level gs.TerrainDirty
+    | Some _ ->
         let prevInterp = g.InterpolationMode
         g.InterpolationMode <- InterpolationMode.NearestNeighbor
         g.DrawImage(tbmp, Rectangle(mmX, mmY, mmW, mmH),
@@ -670,12 +687,19 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
     use clearBrush = new SolidBrush(Color.Black)
     g.FillRectangle(clearBrush, 0, 0, windowW, windowH)
 
+    // Resolve (and, if terrain changed, patch) the terrain bitmap once for
+    // the whole frame — all viewports and minimaps draw from the same bitmap.
+    let tbmp =
+        match gs.Level with
+        | Some level -> currentTerrainBitmap level gs.TerrainDirty
+        | None -> null
+
     let layouts = viewportLayout gs.NumPlayers windowW windowH
 
     for i in 0..gs.NumPlayers-1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
-            drawPlayerView g gs i vx vy vw vh
+            drawPlayerView g gs tbmp i vx vy vw vh
             drawBorder g vx vy vw vh i
 
     // Title bar overlay
@@ -712,6 +736,12 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
             then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
             else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
         g.DrawString(respawnRule, subFont, cyan, cx, y)
+        y <- y + 16.0f
+        let gamepadRule =
+            if gs.GamepadsEnabled
+            then "Gamepads (XInput): ON — pad N drives P-N, keyboard still works   [F10 to disable]"
+            else "Gamepads (XInput): OFF — keyboard only   [F10 to enable]"
+        g.DrawString(gamepadRule, subFont, cyan, cx, y)
         y <- y + 28.0f
         g.DrawString("Controls:", subFont, yellow, cx, y)
         y <- y + 18.0f
@@ -722,3 +752,6 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         g.DrawString("P3 RED:    T/F/H = Thrust/Turn            Y = Fire         G = Special   4/5 = Weapon", keyFont, white, cx, y)
         y <- y + 15.0f
         g.DrawString("P4 YELLOW: I/J/L = Thrust/Turn            B = Fire         K = Special   6/7 = Weapon", keyFont, white, cx, y)
+        y <- y + 15.0f
+        use green = new SolidBrush(Color.FromArgb(0xA0, 0xFF, 0xA0))
+        g.DrawString("Gamepad:   Stick/DPad = Turn   A = Thrust   B/RT = Fire   X/LT = Special   LB/RB = Weapon   Start = Begin", keyFont, green, cx, y)
