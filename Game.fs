@@ -16,6 +16,20 @@ open FsRocket.Entities
 let spawnExplosion (rng: Random) (x: float) (y: float) (count: int) (speed: float) (life: int) (ownerIdx: int) : Particle list =
     spawnExplosionParticles rng x y count speed life (ownerIdx % 4)
 
+/// Pool of special weapons a CPU player may draw from: everything cyclable
+/// (Enabled, mirroring the human weapon-switch keys) except the plain Cannon,
+/// which is the always-available main fire.
+let private cpuWeaponPool =
+    [| for i in 0 .. weapons.Length - 1 do
+         let wt = enum<WeaponType> i
+         if weapons[i].Enabled && wt <> WeaponType.Cannon then yield wt |]
+
+/// Random special weapon for a CPU, always different from the current one.
+let randomSpecialWeapon (rng: Random) (current: WeaponType) : WeaponType =
+    let pool = cpuWeaponPool |> Array.filter (fun wt -> wt <> current)
+    if pool.Length = 0 then current
+    else pool[rng.Next pool.Length]
+
 // ─── Weapon Firing (returns updated Player * new Entity list) ──────────
 
 let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
@@ -428,6 +442,11 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     let reloadTimer = if p.ReloadTimer > 0 then p.ReloadTimer - 1 else 0
     let specialReloadTimer = if p.SpecialReloadTimer > 0 then p.SpecialReloadTimer - 1 else 0
 
+    // CPU ships re-arm when they dock: on the tick a CPU settles onto a pad
+    // (OnBase edge false -> true) it swaps its special weapon for a random
+    // different one — the CPU counterpart of the human switch-while-based rule.
+    let justDocked = onBase && not p.OnBase
+
     // Build partially-updated player
     let p = { p with
                 PosX = posX; PosY = posY; Angle = angle
@@ -438,6 +457,11 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 AnimAngle = animAngle; ReloadTimer = reloadTimer
                 SpecialReloadTimer = specialReloadTimer
                 OnBase = onBase }
+
+    let p =
+        if p.IsCpu && justDocked then
+            { p with SpecialWeapon = randomSpecialWeapon gs.Rng p.SpecialWeapon; SpecialReloadTimer = 0 }
+        else p
 
     // Cannon firing (main fire key) — always single-shot Cannon
     let p, newEnts1 =
@@ -990,7 +1014,9 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 | Some level ->
                                     if Terrain.eraseTerrainCircle level.Pixels ent.X ent.Y 10.0 then dirty <- true
                                 | None -> ()
-                                newParticles <- newParticles @ spawnExplosion gs.Rng ent.X ent.Y 10 2.0 20 (ent.Owner % 4)
+                                // Prepend, not append — particle order doesn't matter and
+                                // appending is quadratic across many hits in one tick
+                                newParticles <- spawnExplosion gs.Rng ent.X ent.Y 10 2.0 20 (ent.Owner % 4) @ newParticles
                                 ent <- { ent with EType = EntityType.None }  // Mark for removal
                             | _ ->
                                 // Consume the projectile so it cannot hit further players
@@ -1292,7 +1318,19 @@ let cpuAI (gs: GameState) : GameState =
                         | WeaponType.RubberBullets ->
                             // Single bouncing shot when aimed
                             aimed && inRange && phase % 5 = 0
-                        | _ -> false
+                        | WeaponType.RearTurret ->
+                            // Fires backwards — use when the enemy is behind us
+                            abs diff > 120.0 && dist < 100.0 && phase % 4 = 0
+                        | WeaponType.AtomWeapon ->
+                            // Huge blast — sparing long-range aimed shots, well
+                            // clear of the CPU's own ship
+                            aimed && dist > 100.0 && phase % 9 = 0
+                        | _ ->
+                            // Remaining projectile specials (Dirtclod, Headspinner,
+                            // Freezer, Nucleus, Dumbfire): aimed shot in range.
+                            // CPUs only carry Enabled weapons, so this never
+                            // fires an unimplemented one.
+                            aimed && inRange && phase % 6 = 0
 
                     { p with
                         KeyUp = shouldThrust
@@ -1379,8 +1417,9 @@ let gameTick (gs: GameState) : GameState =
             if aliveCount <= 1 && graceOver then false else gs.RoundActive
 
     // TerrainDirty is consumed by the renderer on the next frame;
-    // it must NOT be cleared here — the renderer checks it once
-    // and rebuilds the bitmap, then we clear it after rendering.
+    // it must NOT be cleared here — the renderer checks it once and patches
+    // the terrain bitmap (using the dirty rect accumulated in Terrain),
+    // then the host clears it after rendering.
     { gs with
         Players = players
         Entities = entities
@@ -1391,12 +1430,21 @@ let gameTick (gs: GameState) : GameState =
 // ─── Init Round ────────────────────────────────────────────────────────
 
 let initRound (gs: GameState) : GameState =
-    // Reload level terrain from disk to reset any ammo damage
+    // Reload level terrain from disk to reset any ammo damage. Desktop only —
+    // the Fable/web host has no file system and resets terrain from a pristine
+    // in-memory copy before calling initRound.
     let gs =
+#if FABLE_COMPILER
+        gs
+#else
         if gs.LevelFilePath <> "" && System.IO.File.Exists gs.LevelFilePath then
             let freshLevel = Terrain.loadLevel gs.LevelFilePath
+            // Wholesale pixel change: the renderer must repaint the whole
+            // terrain bitmap, not just the accumulated crater rect.
+            Terrain.markAllDirty ()
             { gs with Level = Some freshLevel; TerrainDirty = true }
         else gs
+#endif
 
     let cpuStart = gs.NumPlayers - gs.CpuCount  // First CPU player index
     // Thread the set of occupied base indices through the players so each one spawns
@@ -1406,11 +1454,17 @@ let initRound (gs: GameState) : GameState =
         |> List.indexed
         |> List.mapFold (fun occupied (i, p) ->
             if i < gs.NumPlayers then
+                let isCpu = i >= cpuStart
                 let spawned, idx = spawnPlayerExcluding gs.Rng gs.Level occupied p
                 let spawned =
                     { spawned with
                         WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
-                        ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = i >= cpuStart }
+                        ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = isCpu }
+                // CPU players open each round with a random special weapon
+                // (humans keep their previous pick)
+                let spawned =
+                    if isCpu then { spawned with SpecialWeapon = randomSpecialWeapon gs.Rng spawned.SpecialWeapon }
+                    else spawned
                 spawned, (if idx >= 0 then idx :: occupied else occupied)
             else
                 p, occupied

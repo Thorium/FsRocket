@@ -28,7 +28,7 @@ type Player =
       Flags: PlayerFlags
       Health: int
       WeaponType: WeaponType      // Main weapon — always Cannon (fire key)
-      SpecialWeapon: WeaponType   // Special weapon — selected via F1-F4 (DOWN key)
+      SpecialWeapon: WeaponType   // Special weapon — fired with the DOWN key; changed at a base
       ReloadTimer: int          // Countdown to next cannon shot
       SpecialReloadTimer: int   // Countdown to next special weapon shot
       KeyUp: bool               // Key states set by input
@@ -97,4 +97,5 @@ type GameState =
       LevelFilePath: string       // Full path to current .LEV file (empty = no terrain)
       TerrainDirty: bool
       WeaponSwitchOnlyOnBase: bool  // Default: special weapon can only be changed while parked on a base
-      RespawnOnDeath: bool }        // Default: destroyed ships respawn after a short delay; off = ships stay dead and the round ends when at most one is left
+      RespawnOnDeath: bool          // Default: destroyed ships respawn after a short delay; off = ships stay dead and the round ends when at most one is left
+      GamepadsEnabled: bool }       // Default: connected gamepads claim human player slots; off = keyboard only

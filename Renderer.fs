@@ -327,36 +327,55 @@ let measureText (text: string) (scale: int) =
     text.Length * charW * scale, charH * scale
 
 // ─── Terrain Texture ──────────────────────────────────────────────────
+// One persistent texture, rebuilt in full only when the level changes.
+// In-round ammo damage is patched incrementally from the dirty rect
+// Terrain.eraseTerrainCircle accumulates (SetData on just that sub-rect),
+// and the texture is resolved ONCE per frame in renderFrame — every viewport
+// and minimap shares it. (Disposing and rebuilding the full 320x400 texture
+// per viewport per dirty frame was the 4-player performance killer.)
 
-/// Build a Texture2D from terrain pixel data using the VGA palette
-let buildTerrainTexture (device: GraphicsDevice) (level: LevelData) : Texture2D =
-    let tex = new Texture2D(device, MapWidth, MapHeight)
-    let data = Array.init (MapWidth * MapHeight) (fun i ->
-        let pixel = level.Pixels[i]
-        // Bases (landing pads) get a fixed, recognizable colour instead of the raw
-        // palette shades so players can spot where to land, heal and swap weapons.
-        if isBase pixel then basePadColor
-        else
-            let argb = vgaPalette[int pixel]
-            let a = (argb >>> 24) &&& 0xFF
-            let r = (argb >>> 16) &&& 0xFF
-            let g = (argb >>> 8) &&& 0xFF
-            let b = argb &&& 0xFF
-            Color(r, g, b, a)
-    )
-    tex.SetData(data)
-    tex
+/// Paint level pixels over an inclusive rect using the VGA palette and upload
+/// just that region to the texture.
+let private paintTerrainRect (tex: Texture2D) (level: LevelData) (x0: int) (y0: int) (x1: int) (y1: int) =
+    let w = x1 - x0 + 1
+    let h = y1 - y0 + 1
+    let data = Array.zeroCreate<Color> (w * h)
+    for y in 0 .. h - 1 do
+        let srcRow = (y0 + y) * MapWidth + x0
+        let dstRow = y * w
+        for x in 0 .. w - 1 do
+            let pixel = level.Pixels[srcRow + x]
+            data[dstRow + x] <-
+                // Bases (landing pads) get a fixed, recognizable colour instead of the raw
+                // palette shades so players can spot where to land, heal and swap weapons.
+                if isBase pixel then basePadColor
+                else
+                    let argb = vgaPalette[int pixel]
+                    Color((argb >>> 16) &&& 0xFF, (argb >>> 8) &&& 0xFF, argb &&& 0xFF, (argb >>> 24) &&& 0xFF)
+    tex.SetData(0, System.Nullable(Rectangle(x0, y0, w, h)), data, 0, data.Length)
 
-/// Get or create cached terrain texture
-let getTerrainTexture (res: RenderResources) (device: GraphicsDevice) (level: LevelData) (terrainDirty: bool) : Texture2D =
-    if res.TerrainLevelName <> level.Name || terrainDirty then
+/// Resolve the terrain texture for this frame — full rebuild on level change,
+/// dirty-rect patch while terrain is being carved, otherwise the cache as-is.
+/// Must be called OUTSIDE any SpriteBatch Begin/End (SetData on a bound
+/// texture is invalid).
+let currentTerrainTexture (res: RenderResources) (device: GraphicsDevice) (level: LevelData) (terrainDirty: bool) : Texture2D =
+    match res.TerrainTexture with
+    | Some tex when res.TerrainLevelName = level.Name ->
+        if terrainDirty then
+            match Terrain.takeDirtyRect () with
+            | Some (x0, y0, x1, y1) -> paintTerrainRect tex level x0 y0 x1 y1
+            | None ->
+                // Dirty with no recorded rect (defensive): repaint everything
+                paintTerrainRect tex level 0 0 (MapWidth - 1) (MapHeight - 1)
+        tex
+    | _ ->
         res.TerrainTexture |> Option.iter (fun t -> t.Dispose())
-        let tex = buildTerrainTexture device level
+        let tex = new Texture2D(device, MapWidth, MapHeight)
+        Terrain.takeDirtyRect () |> ignore   // superseded by the full paint
+        paintTerrainRect tex level 0 0 (MapWidth - 1) (MapHeight - 1)
         res.TerrainTexture <- Some tex
         res.TerrainLevelName <- level.Name
         tex
-    else
-        res.TerrainTexture.Value
 
 // ─── Layout: viewports for 1-4 players ─────────────────────────────────
 
@@ -394,7 +413,9 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
 /// scale. Every SpriteBatch batch composes Matrix.CreateScale(zoom) so all
 /// drawing stays in logical space; ScissorRectangle is a PHYSICAL pixel rect,
 /// so logical rects are scaled by zoom manually there.
-let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (zoom: float)
+/// ttex is the terrain texture already resolved for this frame (null when the
+/// game runs without a level).
+let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (ttex: Texture2D) (zoom: float)
                    (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) =
     let hudH = 36
     let gameH = vh - hudH
@@ -428,9 +449,9 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     let toScreenY (wy: float) = vy + int ((wy - camY) * effectiveScaleF)
 
     match gs.Level with
-    | Some level ->
+    | Some _ ->
         // Draw terrain texture (scaled with extra zoom)
-        let tbmp = getTerrainTexture res device level gs.TerrainDirty
+        let tbmp = ttex
         let effectiveScale = float Scale * TerrainZoom
         let srcX = max 0 (int camX)
         let srcY = max 0 (int camY)
@@ -782,9 +803,8 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
 
     // Terrain preview on minimap
     match gs.Level with
-    | Some level ->
-        let tbmp = getTerrainTexture res device level gs.TerrainDirty
-        sb.Draw(tbmp, Rectangle(mmX, mmY, mmW, mmH),
+    | Some _ ->
+        sb.Draw(ttex, Rectangle(mmX, mmY, mmW, mmH),
                 System.Nullable(Rectangle(0, 0, MapWidth, MapHeight)), Color.White)
     | None ->
         // Walls on minimap
@@ -944,13 +964,22 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
     res.BasicEffect.View <- Matrix.Identity
     res.BasicEffect.World <- xform
 
+    // Resolve (and, if terrain changed, patch) the terrain texture once for
+    // the whole frame — all viewports and minimaps draw from the same texture.
+    // Done here, outside every SpriteBatch batch, because SetData on a bound
+    // texture is invalid.
+    let ttex =
+        match gs.Level with
+        | Some level -> currentTerrainTexture res device level gs.TerrainDirty
+        | None -> null
+
     let layouts = viewportLayout gs.NumPlayers windowW windowH
 
     for i in 0..gs.NumPlayers-1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
             // drawPlayerView manages its own SpriteBatch batches internally
-            drawPlayerView res device gs zoom i vx vy vw vh
+            drawPlayerView res device gs ttex zoom i vx vy vw vh
 
             // Draw border
             res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
@@ -989,6 +1018,11 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
             if gs.RespawnOnDeath then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
             else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
         drawText res.SpriteBatch res.FontTexture respawnRule cx y (Color(0x90, 0xC0, 0xFF)) 1
+        y <- y + 12
+        let gamepadRule =
+            if gs.GamepadsEnabled then "Gamepads: ON — pad N drives P-N, keyboard still works   [F10 to disable]"
+            else "Gamepads: OFF — keyboard only   [F10 to enable]"
+        drawText res.SpriteBatch res.FontTexture gamepadRule cx y (Color(0x90, 0xC0, 0xFF)) 1
         y <- y + 20
 
         drawText res.SpriteBatch res.FontTexture "Controls:" cx y (Color(0xFF, 0xFF, 0x80)) 1
@@ -1000,5 +1034,7 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
         drawText res.SpriteBatch res.FontTexture "P3 RED:    T/F/H = Thrust/Turn             Y = Fire     G = Special  4/5 = Weapon" cx y Color.White 1
         y <- y + 10
         drawText res.SpriteBatch res.FontTexture "P4 YELLOW: I/J/L = Thrust/Turn             B = Fire     K = Special  6/7 = Weapon" cx y Color.White 1
+        y <- y + 10
+        drawText res.SpriteBatch res.FontTexture "Gamepad:   Stick/DPad = Turn  A = Thrust  B/RT = Fire  X/LT = Special  LB/RB = Weapon  Start = Begin" cx y (Color(0xA0, 0xFF, 0xA0)) 1
 
         res.SpriteBatch.End()
