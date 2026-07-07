@@ -123,9 +123,13 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
     let sw = p.SpecialWeapon
     let w = getWeapon sw
 
-    // Recoil: push ship backwards (opposite to facing direction)
+    // Recoil: push ship backwards (opposite to facing direction). The REAR
+    // TURRET fires backwards, so its recoil nudges the ship a bit FORWARD
+    // instead — rapid rear fire doubles as a light afterburner.
     let rad = degToRad (p.Angle + 90.0)
-    let recoil = SpecialFireRecoil
+    let recoil =
+        if sw = WeaponType.RearTurret then -SpecialFireRecoil * 0.5
+        else SpecialFireRecoil
     let p = { p with
                 VelX = p.VelX - cos rad * recoil
                 VelY = p.VelY + sin rad * recoil
@@ -150,11 +154,8 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
         p, ents
 
     | WeaponType.Nucleus ->
-        // NUCLEUS: shield orbiter at player pos
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        EType = EntityType.Shield; Owner = ownerIdx; WeaponIdx = WeaponType.Nucleus }
-        p, [ ent ]
+        // NUCLEUS: slow drifting freeze orb — floats ahead as area denial
+        p, [ makeProjectile p ownerIdx sw ]
 
     | WeaponType.HellFire ->
         // HELL FIRE: wider spread burst
@@ -228,6 +229,12 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
                         EType = EntityType.Flame; Owner = ownerIdx
                         Timer = -200; Radius = 8.0; WeaponIdx = WeaponType.ToxicDump }
         p, [ ent ]
+
+    | WeaponType.Troopers ->
+        // TROOPERS: lob 3 ground units in a spread; they fall, dig in and
+        // fire bullets at the sky (see the Trooper case in updateEntity)
+        let ents = [ for off in [ -30.0; 0.0; 30.0 ] -> makeProjectileAngled p ownerIdx sw off ]
+        p, ents
 
     | WeaponType.Dumbfire ->
         // DUMBFIRE: fast unguided rocket
@@ -447,6 +454,10 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     // different one — the CPU counterpart of the human switch-while-based rule.
     let justDocked = onBase && not p.OnBase
 
+    // A fresh press of the fire key this tick (edge, not held) — captured
+    // before KeyFirePrev is refreshed below
+    let freshFirePress = p.KeyFire && not p.KeyFirePrev
+
     // Build partially-updated player
     let p = { p with
                 PosX = posX; PosY = posY; Angle = angle
@@ -456,25 +467,34 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 StunTimer = stunTimer
                 AnimAngle = animAngle; ReloadTimer = reloadTimer
                 SpecialReloadTimer = specialReloadTimer
+                KeyFirePrev = p.KeyFire
                 OnBase = onBase }
 
     let p =
         if p.IsCpu && justDocked then
-            { p with SpecialWeapon = randomSpecialWeapon gs.Rng p.SpecialWeapon; SpecialReloadTimer = 0 }
+            // Swapping the special also drops the magnofilter field — the
+            // toggle-off action belongs to the weapon being swapped away
+            { p with SpecialWeapon = randomSpecialWeapon gs.Rng p.SpecialWeapon
+                     SpecialReloadTimer = 0
+                     Flags = p.Flags &&& ~~~PlayerFlags.Magno }
         else p
 
-    // Cannon firing (main fire key) — always single-shot Cannon
+    // Cannon firing (main fire key) — always single-shot Cannon. HOLDING the
+    // key auto-fires at the full reload rate; TAPPING it lets a fresh press
+    // fire once the reload is half done, so a quick trigger finger can push
+    // the main gun up to 2x the auto-fire rate. Main weapon only — specials
+    // keep their full reload gate.
     let p, newEnts1 =
-        if p.KeyFire && p.ReloadTimer = 0 && p.Ammo > 0 && canControl then
+        let reloadDone = p.ReloadTimer = 0
+        let tapFire = freshFirePress && p.ReloadTimer * 2 <= (getWeapon p.WeaponType).ReloadTicks
+        if p.KeyFire && (reloadDone || tapFire) && p.Ammo > 0 && canControl then
             fireWeapon gs.Rng gs.Level p idx
         else p, []
 
     // Special weapon firing (DOWN key) — uses SpecialWeapon + SpecialReloadTimer
     let p, newEnts2 =
         if p.KeyDown && p.SpecialReloadTimer = 0 && canControl then
-            match p.SpecialWeapon with
-            | WeaponType.Troopers -> p, []  // TROOPERS — not implemented
-            | _ -> fireSpecial gs.Rng gs.Level p idx
+            fireSpecial gs.Rng gs.Level p idx
         else p, []
 
     // Death check
@@ -683,7 +703,14 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
 
         // Wall collision — explode (or detonate as nuke for AtomWeapon)
         if hitsWall gs.Level x y 3.0 then
-            if ent.WeaponIdx = WeaponType.AtomWeapon then
+            if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer < atomArmTicks then
+                // Unarmed atom round fizzles — the nuke can't be point-blank
+                // detonated by firing into the wall next to your target (or
+                // yourself; friendly fire would make that suicide anyway)
+                eraseTerrain gs.Level x y 3.0
+                let parts = spawnExplosion gs.Rng x y 4 1.0 8 (ent.Owner % 4)
+                (None, [], parts @ particles, dirty)
+            elif ent.WeaponIdx = WeaponType.AtomWeapon then
                 // Atom weapon: spawn a Nuke entity at impact point
                 let nuke = { defaultEntity with
                                 X = x; Y = y; VelX = ent.VelX * 0.3; VelY = ent.VelY * 0.3
@@ -695,7 +722,9 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
                 eraseTerrain gs.Level x y 6.0
                 let parts = spawnExplosion gs.Rng x y 6 1.5 12 (ent.Owner % 4)
                 (None, [], parts @ particles, dirty)
-        elif outOfBounds 20.0 x y || ent.Timer > 300 then
+        // Missiles run out of fuel sooner — a 300-tick homing life makes your
+        // own missile boomerang back at you far too often (friendly fire!)
+        elif outOfBounds 20.0 x y || ent.Timer > (if ent.WeaponIdx = WeaponType.Missile then 150 else 300) then
             if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer > 300 then
                 // Atom weapon timeout: detonate wherever it is
                 let nuke = { defaultEntity with
@@ -743,12 +772,48 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         else
             (Some { ent with X = x; Y = y; VelY = vy; Radius = radius }, [], [], false)
 
+    | EntityType.Trooper ->
+        // TROOPER: a lobbed ground unit. Falls with gravity; with terrain
+        // directly underneath it digs in and fires a bullet at the sky every
+        // trooperFireInterval ticks until its lifetime runs out.
+        if ent.Timer > trooperLifeTicks then
+            let parts = spawnExplosion gs.Rng ent.X ent.Y 3 0.8 8 (ent.Owner % 4)
+            (None, [], parts, false)
+        else
+            let grounded = hitsWall gs.Level ent.X (ent.Y + 2.0) 1.0
+            if grounded then
+                let shots =
+                    if ent.Timer > 0 && ent.Timer % trooperFireInterval = 0 then
+                        let angle = degToRad (90.0 + float (gs.Rng.Next 41 - 20))
+                        [ { defaultEntity with
+                              X = ent.X; Y = ent.Y - 2.0
+                              VelX = cos angle * 3.5
+                              VelY = -(sin angle) * 3.5
+                              EType = EntityType.Bullet; Owner = ent.Owner
+                              WeaponIdx = WeaponType.Troopers } ]
+                    else []
+                (Some { ent with VelX = 0.0; VelY = 0.0 }, shots, [], false)
+            else
+                let vy = min (ent.VelY + 0.08) 3.0
+                let vx = ent.VelX * 0.98
+                let x = ent.X + vx
+                let y = ent.Y + vy
+                if outOfBounds 10.0 x y then (None, [], [], false)
+                elif hitsWall gs.Level x y 1.0 then
+                    // Ran into a wall sideways or steeply — stop and dig in here
+                    (Some { ent with VelX = 0.0; VelY = 0.0 }, [], [], false)
+                else
+                    (Some { ent with X = x; Y = y; VelX = vx; VelY = vy }, [], [], false)
+
     | _ ->
         // Default: linear motion (Bullet, BulletAlt, PassThrough, Shield, etc.)
-        // Standard bullets get normal gravity; alt bullets get lighter gravity
+        // Standard bullets get normal gravity; alt bullets get lighter gravity.
+        // The Nucleus freeze orb barely sinks — it is meant to FLOAT ahead as
+        // area denial, not nose-dive (its forward drift is only 1.2 px/tick).
         let gravity =
             match ent.EType with
             | EntityType.Bullet -> 0.125
+            | EntityType.Shield when ent.WeaponIdx = WeaponType.Nucleus -> 0.005
             | EntityType.BulletAlt | EntityType.Shield -> 0.04
             | _ -> 0.0
         let vy = ent.VelY + gravity
@@ -758,7 +823,10 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         let x = ent.X + ent.VelX
         let y = ent.Y + vy
         if hitsWall gs.Level x y 1.0 then
-            eraseTerrain gs.Level x y 3.0
+            // Freeze orbs fizzle on the wall without craters — a zero-damage
+            // effect projectile shouldn't dig terrain
+            if ent.EType <> EntityType.Shield then
+                eraseTerrain gs.Level x y 3.0
             (None, [], [], dirty)
         elif outOfBounds 20.0 x y || ent.Timer > 200 then
             (None, [], [], dirty)
@@ -806,7 +874,10 @@ let applyBlackholePull (entities: Entity list) (players: Player list) (numPlayer
                     let dy = bh.Y - py
                     let dist = sqrt (dx*dx + dy*dy) + 0.1
                     if dist < blackholeRadius then
-                        let force = blackholeStrength * 0.3 * (1.0 - dist / blackholeRadius)
+                        // Half the full field strength: at the core the pull (0.1/tick)
+                        // matches full thrust — a ship that drifts deep in barely
+                        // claws out, further out thrust wins comfortably
+                        let force = blackholeStrength * 0.5 * (1.0 - dist / blackholeRadius)
                         vx <- vx + dx / dist * force
                         vy <- vy + dy / dist * force
                 if vx <> p.VelX || vy <> p.VelY then
@@ -815,11 +886,18 @@ let applyBlackholePull (entities: Entity list) (players: Player list) (numPlayer
 
     (entities, players)
 
-// ─── Magnofilter Pull Pass ─────────────────────────────────────────────
-// Players with Magno flag attract enemy projectiles toward themselves.
+// ─── Magnofilter Deflector Pass ────────────────────────────────────────
+// Players with Magno flag DEFLECT enemy projectiles away from themselves —
+// a defensive field (attracting bullets to yourself was worse than useless).
+// The field is a QUARTER circle over the nose (±45°, like the original):
+// the front is strongly protected but the tail stays open, so skilled
+// flying — keeping your nose toward the threat — is what makes it work.
 
 let magnofilterPullRadius = 60.0
 let magnofilterStrength = 0.25
+/// cos 45° — a projectile is inside the field when the ship-to-projectile
+/// direction is within ±45° of the ship's facing
+let private magnofilterArcCos = 0.7071
 
 let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: int) : Entity list =
     let magnoPlayers =
@@ -836,20 +914,79 @@ let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: i
             let mutable vx = ent.VelX
             let mutable vy = ent.VelY
             for (pi, mp) in magnoPlayers do
-                if pi <> ent.Owner then  // Don't attract own bullets
+                if pi <> ent.Owner then  // Don't deflect own bullets
                     let px = mp.PosX / PositionScale
                     let py = mp.PosY / PositionScale
                     let dx = px - ent.X
                     let dy = py - ent.Y
                     let dist = sqrt (dx*dx + dy*dy) + 0.1
                     if dist < magnofilterPullRadius then
-                        let force = magnofilterStrength * (1.0 - dist / magnofilterPullRadius)
-                        vx <- vx + dx / dist * force
-                        vy <- vy + dy / dist * force
+                        // Quarter-circle field: only projectiles in the ±45°
+                        // arc over the nose are deflected; the tail is open
+                        let rad = degToRad (mp.Angle + 90.0)
+                        let towardEntX = -dx / dist
+                        let towardEntY = -dy / dist
+                        let facingDot = towardEntX * cos rad + towardEntY * -(sin rad)
+                        if facingDot > magnofilterArcCos then
+                            let force = magnofilterStrength * (1.0 - dist / magnofilterPullRadius)
+                            // Push AWAY from the magno ship (dx/dy point toward it)
+                            vx <- vx - dx / dist * force
+                            vy <- vy - dy / dist * force
             if vx <> ent.VelX || vy <> ent.VelY then
                 { ent with VelX = vx; VelY = vy }
             else ent
         | _ -> ent)
+
+// ─── Projectiles/Blasts vs Troopers ────────────────────────────────────
+// Troopers are killable:
+//  - plain bullets, ricochets and shrapnel destroy one on contact and are
+//    spent doing so — a dug-in nest can be cleared with the cannon (or by
+//    another trooper's fire). Fresh rounds get a couple of ticks of grace
+//    so a trooper doesn't shoot itself with the bullet leaving its barrel.
+//  - nuke blasts and sonicboom rings kill EVERY trooper they sweep over
+//    (the blast itself persists, as it does against ships).
+// Mine detonations also clear troopers — handled at the detonation site in
+// checkBulletPlayerCollision, since the mine is gone the same tick.
+
+let checkTrooperHits (rng: Random) (entities: Entity list) : Entity list * Particle list =
+    if not (entities |> List.exists (fun e -> e.EType = EntityType.Trooper)) then
+        (entities, [])
+    else
+        let es = Array.ofList entities
+        let mutable parts : Particle list = []
+        let killTrooper ti =
+            let t: Entity = es[ti]
+            parts <- spawnExplosionParticles rng t.X t.Y 4 1.0 8 (t.Owner % 4) @ parts
+            es[ti] <- { t with EType = EntityType.None }
+        for bi in 0 .. es.Length - 1 do
+            let b = es[bi]
+            match b.EType with
+            | EntityType.Bullet | EntityType.BulletAlt | EntityType.Ricochet | EntityType.Shrapnel when b.Timer > 2 ->
+                // Kinetic round: kills the first trooper it touches, then is spent
+                let mutable hit = false
+                for ti in 0 .. es.Length - 1 do
+                    if not hit && es[ti].EType = EntityType.Trooper
+                       && collides b.X b.Y 1.0 es[ti].X es[ti].Y 2.0 then
+                        hit <- true
+                        killTrooper ti
+                        es[bi] <- { b with EType = EntityType.None }
+            | EntityType.Nuke ->
+                // Expanding blast: every trooper inside the radius dies
+                let blastR = max 4.0 b.Radius
+                for ti in 0 .. es.Length - 1 do
+                    if es[ti].EType = EntityType.Trooper
+                       && collides b.X b.Y blastR es[ti].X es[ti].Y 2.0 then
+                        killTrooper ti
+            | EntityType.Expanding ->
+                // Sonicboom: troopers caught in the ring band die
+                for ti in 0 .. es.Length - 1 do
+                    if es[ti].EType = EntityType.Trooper then
+                        let dx = b.X - es[ti].X
+                        let dy = b.Y - es[ti].Y
+                        if abs (sqrt (dx*dx + dy*dy) - b.Radius) < 6.0 then
+                            killTrooper ti
+            | _ -> ()
+        (es |> Array.toList |> List.filter (fun e -> e.EType <> EntityType.None), parts)
 
 // ─── Bullet-Player Collision ───────────────────────────────────────────
 // Returns (updated Player list, updated Entity list, new Particle list, terrainModified)
@@ -866,41 +1003,59 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
             let mutable atomDetonate = false
             for i in 0 .. gs.NumPlayers - 1 do
                 let p = ps[i]
-                if p.Alive && i <> ent.Owner && p.InvTimer = 0 then
+                // Friendly fire: after a short grace period a projectile can
+                // hit its own shooter too (at reduced damage, below) — you
+                // can't nuke someone point-blank without getting hurt.
+                let selfHit = i = ent.Owner
+                if p.Alive && p.InvTimer = 0 && (not selfHit || ent.Timer > SelfHitGraceTicks) then
                     let radius =
                         match ent.EType with
                         | EntityType.Mine -> 8.0
                         | EntityType.Heavy -> 6.0
+                        // Freeze orbs (Freezer/Nucleus) deal no damage — landing
+                        // one IS the payoff, so give them a forgiving hitbox
+                        | EntityType.Shield -> 5.0
                         | EntityType.Nuke -> max 4.0 ent.Radius
                         | EntityType.Expanding -> ent.Radius
                         | EntityType.Blackhole -> 6.0
                         | EntityType.Flame -> max 2.0 (float ent.Timer * 0.3)
                         | _ -> 3.0
-                    // Ship hull radius — kept tight to the triangle so bullets reach
-                    // the sprite before registering, matching player-player collision.
-                    let playerRadius = 2.0
                     let px = p.PosX / PositionScale
                     let py = p.PosY / PositionScale
 
                     let hits =
                         if ent.EType = EntityType.Expanding then
-                            let dx = ent.X - px
-                            let dy = ent.Y - py
-                            let dist = sqrt (dx*dx + dy*dy)
-                            abs (dist - ent.Radius) < playerRadius + 4.0
+                            // Expanding ring band vs the hull: centre or any hull
+                            // vertex within the ring's band counts as a hit
+                            let (a, b, c) = shipTriangle px py p.Angle
+                            let inBand (vx: float, vy: float) =
+                                let dx = ent.X - vx
+                                let dy = ent.Y - vy
+                                abs (sqrt (dx*dx + dy*dy) - ent.Radius) < 4.0
+                            inBand (px, py) || inBand a || inBand b || inBand c
                         else
-                            collides ent.X ent.Y radius px py playerRadius
+                            // Triangle hull hit mask — exactly the ship the
+                            // player sees, not an approximating circle
+                            circleHitsShip ent.X ent.Y radius px py p.Angle
 
                     if hits then
                         let damage =
                             match ent.EType with
-                            | EntityType.Bullet | EntityType.BulletAlt -> bulletDamage
+                            // Per-weapon damage from the weapons table: the
+                            // Cannon main gun hits hardest; special-weapon
+                            // bullets (machinegun, multicannon, troopers...)
+                            // are individually weaker support fire.
+                            | EntityType.Bullet | EntityType.BulletAlt -> max 1 (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Mine -> if ent.Timer > 0 then 30 else 0
                             | EntityType.EMP -> 0
                             | EntityType.Shield -> 0
                             | EntityType.Ricochet -> 3
                             | EntityType.PassThrough -> 1
                             | EntityType.Laser -> 1
+                            // Homing missiles arrive late by nature, so the
+                            // flight-time damage decay would gut them — they
+                            // deal their flat table damage instead.
+                            | EntityType.Heavy when ent.WeaponIdx = WeaponType.Missile -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Heavy -> heavyDamage ent.Timer
                             | EntityType.Flame -> 1
                             | EntityType.Nuke -> 15
@@ -911,7 +1066,15 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             | EntityType.Blackhole -> 2
                             | _ -> 0
 
-                        if damage > 0 || ent.EType = EntityType.EMP || ent.EType = EntityType.Shield then
+                        // Self-hits deal a fraction of the damage; zero-damage
+                        // effect entities (EMP stun, freeze/shield) never
+                        // affect their own shooter.
+                        let damage =
+                            if selfHit then
+                                if damage > 0 then max 1 (int (float damage * FriendlyFireDamageScale)) else 0
+                            else damage
+
+                        if damage > 0 || (not selfHit && (ent.EType = EntityType.EMP || ent.EType = EntityType.Shield)) then
                             let mutable np = { p with Health = p.Health - damage }
 
                             // Knockback
@@ -1017,20 +1180,30 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 // Prepend, not append — particle order doesn't matter and
                                 // appending is quadratic across many hits in one tick
                                 newParticles <- spawnExplosion gs.Rng ent.X ent.Y 10 2.0 20 (ent.Owner % 4) @ newParticles
+                                // The mine blast also wipes out troopers in range
+                                // (the mine is gone this same tick, so the area
+                                // pass in checkTrooperHits never sees the blast)
+                                for ti in 0 .. es.Length - 1 do
+                                    let te = es[ti]
+                                    if te.EType = EntityType.Trooper && collides ent.X ent.Y 10.0 te.X te.Y 2.0 then
+                                        newParticles <- spawnExplosion gs.Rng te.X te.Y 4 1.0 8 (te.Owner % 4) @ newParticles
+                                        es[ti] <- { te with EType = EntityType.None }
                                 ent <- { ent with EType = EntityType.None }  // Mark for removal
                             | _ ->
                                 // Consume the projectile so it cannot hit further players
                                 // this tick. An atom round detonates into a Nuke *after* the
                                 // player loop (below) rather than mid-loop, so overlapping
                                 // players aren't struck as both a Heavy round and a Nuke.
-                                if ent.WeaponIdx = WeaponType.AtomWeapon then atomDetonate <- true
+                                // Unarmed rounds (fired a moment ago) fizzle instead.
+                                if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer >= atomArmTicks then atomDetonate <- true
                                 ent <- { ent with EType = EntityType.None }  // Mark for removal
 
                             // Credit kill — only when THIS damaging hit is what crossed the
                             // death threshold. Prevents double-crediting when several
-                            // projectiles strike a player on the tick it dies, and avoids
-                            // crediting zero-damage EMP/Shield hits.
-                            if damage > 0 && p.Health > DeathThreshold && np.Health <= DeathThreshold then
+                            // projectiles strike a player on the tick it dies, avoids
+                            // crediting zero-damage EMP/Shield hits, and gives no credit
+                            // for blowing yourself up with friendly fire.
+                            if not selfHit && damage > 0 && p.Health > DeathThreshold && np.Health <= DeathThreshold then
                                 if ent.Owner >= 0 && ent.Owner < gs.NumPlayers then
                                     let killer = ps[ent.Owner]
                                     ps[ent.Owner] <- { killer with KillCount = killer.KillCount + 1 }
@@ -1060,10 +1233,9 @@ let checkPlayerCollision (players: Player list) (numPlayers: int) : Player list 
                 let y1 = p1.PosY / PositionScale
                 let x2 = p2.PosX / PositionScale
                 let y2 = p2.PosY / PositionScale
-                // Hull radius kept tight to the triangle, not its circumscribed
-                // circle — the pointed nose/corners are mostly empty space.
-                let collisionDist = 4.0
-                if collides x1 y1 (collisionDist/2.0) x2 y2 (collisionDist/2.0) then
+                // True triangle-vs-triangle hull overlap (separating axis) —
+                // nose-first contact connects at range, sideways brushes don't.
+                if shipsCollide x1 y1 p1.Angle x2 y2 p2.Angle then
                     let dx = x2 - x1
                     let dy = y2 - y1
                     let dist = sqrt (dx*dx + dy*dy) + 0.001
@@ -1276,9 +1448,12 @@ let cpuAI (gs: GameState) : GameState =
                         elif waterAhead then false  // don't fly into water
                         elif dodging then true  // thrust to dodge
                         else
-                            // Normal pursuit: thrust toward enemy, with personality aggression
-                            let wantClose = dist > 50.0 * (2.0 - personality.Aggression)
-                            let tooClose = dist < 25.0
+                            // Normal pursuit: thrust toward enemy, with personality aggression.
+                            // A frozen enemy is a falling wrecking ball — keep clear instead
+                            // of flying into the player-player collision fling.
+                            let enemyFrozen = enemy.Flags.HasFlag(PlayerFlags.Shield)
+                            let wantClose = not enemyFrozen && dist > 50.0 * (2.0 - personality.Aggression)
+                            let tooClose = dist < (if enemyFrozen then 60.0 else 25.0)
                             (wantClose || phase < 8) && not tooClose
 
                     // ── Special weapon (DOWN key) ──
@@ -1318,6 +1493,9 @@ let cpuAI (gs: GameState) : GameState =
                         | WeaponType.RubberBullets ->
                             // Single bouncing shot when aimed
                             aimed && inRange && phase % 5 = 0
+                        | WeaponType.Troopers ->
+                            // Seed the ground when the enemy is closing in
+                            dist < 150.0 && phase % 6 = 0
                         | WeaponType.RearTurret ->
                             // Fires backwards — use when the enemy is behind us
                             abs diff > 120.0 && dist < 100.0 && phase % 4 = 0
@@ -1379,6 +1557,10 @@ let gameTick (gs: GameState) : GameState =
 
     // Magnofilter pull pass
     let entities = applyMagnoPull entities players gs.NumPlayers
+
+    // Projectiles and blasts shoot down troopers
+    let entities, trooperParts = checkTrooperHits gs.Rng entities
+    let particles = particles @ trooperParts
 
     // Bullet-player collision
     let gs = { gs with Players = players; Entities = entities; Particles = particles; TerrainDirty = terrainDirty }

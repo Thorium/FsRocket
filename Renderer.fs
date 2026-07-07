@@ -705,6 +705,15 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                 let sColor = rgba 0x80 0xC0 0xFF sAlpha
                 drawFilledCircle sb res.CircleFilled ex ey (sSize / 2) sColor
 
+            | EntityType.Trooper ->
+                // Tiny soldier in owner colours: body + helmet dot, muzzle
+                // flash pulse right after each upward shot
+                let c = playerColors[ent.Owner % 4]
+                drawRect sb res.Pixel (ex - Scale) (ey - Scale) (Scale * 2) (Scale * 5 / 2) c
+                drawFilledCircle sb res.CircleFilled ex (ey - Scale * 2) (Scale * 2 / 3) (rgba 0xFF 0xDC 0xB4 0xFF)
+                if ent.Timer > 0 && ent.Timer % trooperFireInterval < 3 then
+                    drawFilledCircle sb res.CircleFilled ex (ey - Scale * 3) (Scale / 2) (rgba 0xFF 0xFF 0x80 0xFF)
+
             | _ ->
                 // Default bullet rendering
                 let size = 2 * Scale
@@ -769,6 +778,23 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                     let sr = 7 * Scale
                     drawCircleOutline res.SpriteBatch res.CircleOutline ox oy sr shieldColor
 
+                // Magnofilter deflector field: pulsing teal QUARTER arc over
+                // the nose (±45° forward, tail open) — drawn as short line
+                // segments since there is no arc primitive here
+                if other.Flags.HasFlag(PlayerFlags.Magno) then
+                    let mPulse = sin (float gs.GameTick * 0.25)
+                    let mR = float (9 * Scale) + mPulse * float Scale
+                    let mAlpha = 110 + int (50.0 * mPulse)
+                    let mColor = rgba 0x40 0xFF 0xC0 mAlpha
+                    let mFacing = degToRad (other.Angle + 90.0)
+                    let segs = 8
+                    for s in 0 .. segs - 1 do
+                        let a1 = mFacing - Math.PI / 4.0 + float s * (Math.PI / 2.0) / float segs
+                        let a2 = mFacing - Math.PI / 4.0 + float (s + 1) * (Math.PI / 2.0) / float segs
+                        drawLine res.SpriteBatch res.Pixel
+                            (ox + int (cos a1 * mR)) (oy - int (sin a1 * mR))
+                            (ox + int (cos a2 * mR)) (oy - int (sin a2 * mR)) mColor 2.0f
+
                 // Stun effect
                 if other.Flags.HasFlag(PlayerFlags.Stunned) then
                     for s in 0..2 do
@@ -777,9 +803,21 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                         let sy = oy - int (sin sRad * float (6 * Scale))
                         drawFilledCircle res.SpriteBatch res.CircleFilled sx sy (Scale / 2) empColor
 
-                // Invincibility flash
+                // Invincibility flash: white outline of the hull triangle, one
+                // game px outside the ship — matches the triangle hit mask
                 if other.InvTimer > 0 && other.InvTimer % 4 < 2 then
-                    drawCircleOutline res.SpriteBatch res.CircleOutline ox oy (6 * Scale) Color.White
+                    let effScale = float Scale * TerrainZoom
+                    let fNose = shipSize + effScale
+                    let fRear = shipSize * 0.7 + effScale
+                    let fnX = ox + int (cos rad * fNose)
+                    let fnY = oy - int (sin rad * fNose)
+                    let f1X = ox + int (cos rearRad1 * fRear)
+                    let f1Y = oy - int (sin rearRad1 * fRear)
+                    let f2X = ox + int (cos rearRad2 * fRear)
+                    let f2Y = oy - int (sin rearRad2 * fRear)
+                    drawLine res.SpriteBatch res.Pixel fnX fnY f1X f1Y Color.White (float32 Scale)
+                    drawLine res.SpriteBatch res.Pixel f1X f1Y f2X f2Y Color.White (float32 Scale)
+                    drawLine res.SpriteBatch res.Pixel f2X f2Y fnX fnY Color.White (float32 Scale)
 
                 res.SpriteBatch.End()
 
