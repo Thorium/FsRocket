@@ -467,6 +467,16 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                 use sBrush = new SolidBrush(Color.FromArgb(sAlpha, 0x80, 0xC0, 0xFF))
                 g.FillEllipse(sBrush, ex - sSize/2, ey - sSize/2, sSize, sSize)
 
+            | EntityType.Trooper ->
+                // Tiny soldier in owner colours: body + helmet dot, muzzle
+                // flash pulse right after each upward shot
+                g.FillRectangle(cachedPlayerBrushes[ent.Owner % 4], ex - Scale, ey - Scale, Scale * 2, Scale * 5 / 2)
+                use headBrush = new SolidBrush(Color.FromArgb(0xFF, 0xDC, 0xB4))
+                g.FillEllipse(headBrush, ex - Scale * 2 / 3, ey - Scale * 2 - Scale * 2 / 3, Scale * 4 / 3, Scale * 4 / 3)
+                if ent.Timer > 0 && ent.Timer % trooperFireInterval < 3 then
+                    use flashBrush = new SolidBrush(Color.FromArgb(0xFF, 0xFF, 0x80))
+                    g.FillEllipse(flashBrush, ex - Scale / 2, ey - Scale * 3 - Scale / 2, Scale, Scale)
+
             | _ ->
                 // Default bullet rendering
                 let size = 2 * Scale
@@ -518,6 +528,17 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                     let sr = 7 * Scale
                     g.DrawEllipse(cachedShieldPen, ox - sr, oy - sr, sr * 2, sr * 2)
 
+                // Magnofilter deflector field: pulsing teal QUARTER arc over
+                // the nose — the field only covers ±45° forward, tail is open
+                // (GDI+ arc angles are degrees clockwise from +x; facing = -(Angle+90))
+                if other.Flags.HasFlag(PlayerFlags.Magno) then
+                    let mPulse = sin (float gs.GameTick * 0.25)
+                    let mR = int (float (9 * Scale) + mPulse * float Scale)
+                    let mAlpha = 110 + int (50.0 * mPulse)
+                    use mPen = new Pen(Color.FromArgb(mAlpha, 0x40, 0xFF, 0xC0), float32 Scale * 0.7f)
+                    let mFacing = float32 (-(other.Angle + 90.0))
+                    g.DrawArc(mPen, Rectangle(ox - mR, oy - mR, mR * 2, mR * 2), mFacing - 45.0f, 90.0f)
+
                 // Stun effect (spinning stars)
                 if other.Flags.HasFlag(PlayerFlags.Stunned) then
                     for s in 0..2 do
@@ -526,10 +547,18 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                         let sy = oy - int (sin sRad * float (6 * Scale))
                         g.FillEllipse(cachedEmpStarBrush, sx - Scale/2, sy - Scale/2, Scale, Scale)
 
-                // Invincibility flash
+                // Invincibility flash: white outline of the hull triangle, one
+                // game px outside the ship — matches the triangle hit mask
                 if other.InvTimer > 0 && other.InvTimer % 4 < 2 then
+                    let effScale = float Scale * TerrainZoom
+                    let fNose = shipSize + effScale
+                    let fRear = shipSize * 0.7 + effScale
+                    let fpts =
+                        [| Point(ox + int (cos rad * fNose), oy - int (sin rad * fNose))
+                           Point(ox + int (cos rearRad1 * fRear), oy - int (sin rearRad1 * fRear))
+                           Point(ox + int (cos rearRad2 * fRear), oy - int (sin rearRad2 * fRear)) |]
                     use flashPen = new Pen(Color.White, float32 Scale)
-                    g.DrawEllipse(flashPen, ox - 6*Scale, oy - 6*Scale, 12*Scale, 12*Scale)
+                    g.DrawPolygon(flashPen, fpts)
 
     // ─── Minimap (top-right corner of each viewport) ──────────────
     let mmW = min 80 (vw / 5)   // minimap pixel size

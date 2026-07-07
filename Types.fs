@@ -35,6 +35,8 @@ type Player =
       KeyLeft: bool
       KeyRight: bool
       KeyFire: bool
+      KeyFirePrev: bool         // KeyFire on the previous tick — tapping the fire
+                                // key (fresh press) may beat the auto-fire reload
       KeyDown: bool
       Ammo: int
       Color: int                // Player color index
