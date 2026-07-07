@@ -21,7 +21,7 @@ let createPlayer (index: int) : Player =
       SpecialWeapon = WeaponType.Machinegun // Special: default Machinegun
       ReloadTimer = 0; SpecialReloadTimer = 0
       KeyUp = false; KeyLeft = false
-      KeyRight = false; KeyFire = false; KeyDown = false
+      KeyRight = false; KeyFire = false; KeyFirePrev = false; KeyDown = false
       Ammo = 999
       Color = playerColors[index % 4]; ShotCount = 0; WallHitCount = 0
       CloakAngle = 0.0; StunTimer = 0; Alive = true
@@ -131,6 +131,88 @@ let collides (x1: float) (y1: float) (r1: float) (x2: float) (y2: float) (r2: fl
     let dist = dx * dx + dy * dy
     let radSum = r1 + r2
     dist < radSum * radSum
+
+// ─── Ship triangle hull (matches the rendered triangle) ────────────────
+// Every renderer draws the ship as a triangle: nose at 5*Scale screen px
+// from the centre and two rear corners at 0.7 of that, ±135° from the nose.
+// At the Scale*TerrainZoom screen-px-per-world-px used everywhere, that is
+// a 4.0 world-px nose. Collision uses the same triangle, so the hit mask is
+// exactly the ship the player sees — a shot can miss through the gap beside
+// the nose, and a nose-first ram connects before a sideways brush.
+
+let ShipNoseLen = 4.0
+let ShipRearLen = 2.8   // 0.7 * nose
+let private shipRearAngle = 0.75 * Math.PI
+
+/// Ship hull triangle vertices (nose, rear-left, rear-right) in world px.
+let shipTriangle (x: float) (y: float) (angleDeg: float) =
+    let rad = degToRad (angleDeg + 90.0)
+    let r1 = rad + shipRearAngle
+    let r2 = rad - shipRearAngle
+    ((x + cos rad * ShipNoseLen, y - sin rad * ShipNoseLen),
+     (x + cos r1 * ShipRearLen, y - sin r1 * ShipRearLen),
+     (x + cos r2 * ShipRearLen, y - sin r2 * ShipRearLen))
+
+/// 2D cross product of (b - a) and (p - a) — sign tells which side of AB p is on.
+let private edgeSide (ax: float, ay: float) (bx: float, by: float) (px: float, py: float) =
+    (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+
+/// Is point P inside triangle ABC? (works for either winding)
+let private pointInTriangle p a b c =
+    let d1 = edgeSide a b p
+    let d2 = edgeSide b c p
+    let d3 = edgeSide c a p
+    let hasNeg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0
+    let hasPos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0
+    not (hasNeg && hasPos)
+
+/// Squared distance from point P to segment AB.
+let private distSqToSeg (px: float, py: float) (ax: float, ay: float) (bx: float, by: float) =
+    let abx = bx - ax
+    let aby = by - ay
+    let lenSq = abx * abx + aby * aby
+    let t = if lenSq <= 0.0 then 0.0 else clampF 0.0 1.0 (((px - ax) * abx + (py - ay) * aby) / lenSq)
+    let cx = ax + abx * t
+    let cy = ay + aby * t
+    (px - cx) * (px - cx) + (py - cy) * (py - cy)
+
+/// Does a circle (projectile of radius r) intersect a ship's hull triangle?
+let circleHitsShip (cx: float) (cy: float) (r: float) (shipX: float) (shipY: float) (shipAngle: float) =
+    let (a, b, c) = shipTriangle shipX shipY shipAngle
+    let p = (cx, cy)
+    pointInTriangle p a b c
+    || distSqToSeg p a b <= r * r
+    || distSqToSeg p b c <= r * r
+    || distSqToSeg p c a <= r * r
+
+/// Do two ship hull triangles overlap? Separating-axis test over the edge
+/// normals of both triangles (convex shapes: no separating axis = overlap).
+let shipsCollide (x1: float) (y1: float) (angle1: float) (x2: float) (y2: float) (angle2: float) =
+    let (a1, b1, c1) = shipTriangle x1 y1 angle1
+    let (a2, b2, c2) = shipTriangle x2 y2 angle2
+    let tri1 = [| a1; b1; c1 |]
+    let tri2 = [| a2; b2; c2 |]
+    let project (t: (float * float)[]) (nx: float) (ny: float) =
+        let mutable lo = Double.MaxValue
+        let mutable hi = Double.MinValue
+        for (px, py) in t do
+            let d = px * nx + py * ny
+            if d < lo then lo <- d
+            if d > hi then hi <- d
+        (lo, hi)
+    let separatedByEdgesOf (t: (float * float)[]) =
+        let mutable separated = false
+        for i in 0 .. 2 do
+            let (ax, ay) = t[i]
+            let (bx, by) = t[(i + 1) % 3]
+            // Edge normal (perpendicular)
+            let nx = ay - by
+            let ny = bx - ax
+            let (lo1, hi1) = project tri1 nx ny
+            let (lo2, hi2) = project tri2 nx ny
+            if hi1 < lo2 || hi2 < lo1 then separated <- true
+        separated
+    not (separatedByEdgesOf tri1 || separatedByEdgesOf tri2)
 
 // ─── Arena Walls (obstacles inside the arena) ──────────────────────────
 

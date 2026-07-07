@@ -1,5 +1,5 @@
-// FsRocket Physics Constants
-// Game influence from other rocket games, mainly:
+/// FsRocket Physics Constants
+/// Game influence from other rocket games, mainly:
 // Jaakko Lyytinen (A-More) / The Kudos, 1995
 // Tcpippeli (Ville Kujala)
 // TurboRaketti
@@ -55,13 +55,28 @@ let NormalKnockbackScale = 2.4
 let CollisionDamageScale = 1.5
 
 /// Collision damage multiplier while shielded (terrain contact also clears the
-/// shield). Doubled relative to the normal scale, mirroring the knockback ratio.
+/// shield). 4x the normal scale: the Shield flag is what the FREEZER inflicts,
+/// so a frozen ship falls HARD — getting frozen mid-air is a real threat.
 [<Literal>]
-let ShieldCollisionDamageScale = 3.0
+let ShieldCollisionDamageScale = 6.0
 
 /// Bullet knockback: velocity / 10
 [<Literal>]
 let BulletKnockbackDiv = 10.0
+
+// ─── Friendly Fire ─────────────────────────────
+
+/// Fraction of a projectile's damage its own shooter takes. Area weapons
+/// (nuke, sonicboom, mine, blackhole, toxic pools) are dangerous to everyone,
+/// including the ship that fired them.
+[<Literal>]
+let FriendlyFireDamageScale = 0.4
+
+/// A projectile cannot hit its own shooter during its first ticks — it spawns
+/// at the ship's position and needs time to clear the hull, otherwise every
+/// shot would be instant self-damage.
+[<Literal>]
+let SelfHitGraceTicks = 12
 
 // ─── Firing Recoil / Bullet Momentum ───────────────────────────────────
 
@@ -140,9 +155,10 @@ let DefaultFPS = 36.0
 [<Literal>]
 let SpawnInvincibilityTicks = 16
 
-/// Stun duration added per stun hit
+/// Stun duration added per stun hit (~1.5 s at 36 FPS). Long enough to set up
+/// a punish, short enough that one EMP tag is not a guaranteed kill.
 [<Literal>]
-let StunDurationPerHit = 180
+let StunDurationPerHit = 55
 
 // ─── Health ────────────────────────────────────────────────────────────
 

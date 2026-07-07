@@ -71,6 +71,8 @@ let private strokePath (ctx: obj) : unit = jsNative
 let private fillPath (ctx: obj) : unit = jsNative
 [<Emit("$0.arc($1, $2, $3, 0, 6.283185307179586)")>]
 let private arcFull (ctx: obj) (x: float) (y: float) (r: float) : unit = jsNative
+[<Emit("$0.arc($1, $2, $3, $4, $5)")>]
+let private arcSeg (ctx: obj) (x: float) (y: float) (r: float) (a0: float) (a1: float) : unit = jsNative
 [<Emit("$0.save()")>]
 let private save (ctx: obj) : unit = jsNative
 [<Emit("$0.restore()")>]
@@ -122,6 +124,13 @@ let private strokeCircle ctx cx cy r lw color =
     setLineWidth ctx lw
     beginPath ctx
     arcFull ctx cx cy (max 0.0 r)
+    strokePath ctx
+
+let private strokeArc ctx cx cy r a0 a1 lw color =
+    setStroke ctx color
+    setLineWidth ctx lw
+    beginPath ctx
+    arcSeg ctx cx cy (max 0.0 r) a0 a1
     strokePath ctx
 
 let private lineSeg ctx x1 y1 x2 y2 lw color =
@@ -413,6 +422,14 @@ let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (v
                 let sAngle = float ent.Timer * 5.0
                 let sAlpha = 160 + int (60.0 * sin (degToRad sAngle))
                 fillCircle ctx ex ey (2.0 * scaleF) (cssRGBA 128 192 255 sAlpha)
+            | EntityType.Trooper ->
+                // Tiny soldier in owner colours: body + helmet dot, muzzle
+                // flash pulse right after each upward shot
+                let (r, g, b) = playerRGB[ent.Owner % 4]
+                fillRectC ctx (ex - scaleF * 0.8) (ey - scaleF * 1.0) (scaleF * 1.6) (scaleF * 2.2) (cssRGB r g b)
+                fillCircle ctx ex (ey - scaleF * 1.6) (scaleF * 0.7) "rgb(255,220,180)"
+                if ent.Timer > 0 && ent.Timer % trooperFireInterval < 3 then
+                    fillCircle ctx ex (ey - scaleF * 2.8) (scaleF * 0.6) "rgb(255,255,128)"
             | _ ->
                 fillCircle ctx ex ey scaleF bulletColor
 
@@ -451,13 +468,31 @@ let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (v
                 if other.Flags.HasFlag(PlayerFlags.Shield) then
                     strokeCircle ctx ox oy (float (7 * Scale)) scaleF shieldColor
 
+                // Magnofilter deflector field: pulsing teal QUARTER arc over
+                // the nose — the field only covers ±45° forward, tail is open
+                // (canvas arc angles are clockwise from +x; facing = -rad)
+                if other.Flags.HasFlag(PlayerFlags.Magno) then
+                    let mPulse = sin (float gs.GameTick * 0.25)
+                    let mR = float (9 * Scale) + mPulse * scaleF
+                    let mAlpha = 110 + int (50.0 * mPulse)
+                    let mFacing = -(degToRad (other.Angle + 90.0))
+                    strokeArc ctx ox oy mR (mFacing - Math.PI / 4.0) (mFacing + Math.PI / 4.0) (scaleF * 0.7) (cssRGBA 64 255 192 mAlpha)
+
                 if other.Flags.HasFlag(PlayerFlags.Stunned) then
                     for s in 0..2 do
                         let sRad = degToRad (other.AnimAngle + float s * 120.0)
                         fillCircle ctx (ox + cos sRad * float (6 * Scale)) (oy - sin sRad * float (6 * Scale)) (scaleF / 2.0) empColor
 
                 if other.InvTimer > 0 && other.InvTimer % 4 < 2 then
-                    strokeCircle ctx ox oy (float (6 * Scale)) scaleF "rgb(255,255,255)"
+                    // Invincibility flash: white outline of the hull triangle,
+                    // one game px outside the ship — matches the triangle hit mask
+                    let fNose = shipSize + effScale
+                    let fRear = shipSize * 0.7 + effScale
+                    let fpts =
+                        [ (ox + cos rad * fNose, oy - sin rad * fNose)
+                          (ox + cos r1 * fRear, oy - sin r1 * fRear)
+                          (ox + cos r2 * fRear, oy - sin r2 * fRear) ]
+                    strokePoly ctx fpts scaleF "rgb(255,255,255)"
 
     // ── Minimap (top-right of viewport) ──
     let mmW = float (min 80 (vw / 5))

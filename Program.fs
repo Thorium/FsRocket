@@ -218,7 +218,10 @@ let private cycleWeapon (playerIdx: int) (dir: int) =
             while (not weapons[wt].Enabled || wt = int WeaponType.Cannon) && guard < len do
                 wt <- (wt + dir + len) % len
                 guard <- guard + 1
-            let np = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0 }
+            // Switching the special also drops the magnofilter field — otherwise
+            // it stays on forever with its toggle-off action swapped away
+            let np = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0
+                              Flags = p.Flags &&& ~~~PlayerFlags.Magno }
             gs <- { gs with Players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then np else pl) }
 
 // ─── Gamepads ───────────────────────────────────────────────────────────────

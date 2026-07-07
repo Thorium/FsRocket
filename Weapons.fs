@@ -24,6 +24,7 @@ type EntityType =
     | PlayerCollide  = 21   // player-to-player collision entity
     | Blackhole      = 22   // gravity well (pulls entities + players)
     | Shrapnel       = 23   // explosion shrapnel debris
+    | Trooper        = 24   // trooper ground unit (falls, digs in, fires at the sky)
     | Decel          = 32   // decelerating projectile
     | Expanding      = 33   // expanding entity (sonicboom ring)
 
@@ -90,11 +91,12 @@ let weapons = [|
       ProjectileSpeed = 0.0;   EntityType = EntityType.None;   Enabled = true }
 
     // #3 — REAR TURRET (fires behind, same as bullet)
-    { Name = "REAR TURRET";  ReloadTicks = 5;   Damage = 2;  CollisionRadius = 96
+    { Name = "REAR TURRET";  ReloadTicks = 5;   Damage = 4;  CollisionRadius = 96
       ProjectileSpeed = 4.0;   EntityType = EntityType.BulletAlt; Enabled = true }
 
-    // #4 — MULTICANNON (3-way spread, 2.2 degree offset)
-    { Name = "MULTICANNON";  ReloadTicks = 8;   Damage = 2;  CollisionRadius = 96
+    // #4 — MULTICANNON (burst spread; per-bullet damage kept low and reload long
+    // so a full-burst hit stays a surprise punish, not a main gun)
+    { Name = "MULTICANNON";  ReloadTicks = 10;  Damage = 3;  CollisionRadius = 96
       ProjectileSpeed = 4.0;   EntityType = EntityType.Bullet; Enabled = true }
 
     // #5 — RUBBER BLTS (24 bullets in full circle, 15° apart)
@@ -105,36 +107,38 @@ let weapons = [|
     { Name = "MINE";         ReloadTicks = 30;  Damage = 30; CollisionRadius = 128
       ProjectileSpeed = 0.0;   EntityType = EntityType.Mine;   Enabled = true }
 
-    // #7 — NUCLEUS (orbiters around player)
-    { Name = "NUCLEUS";      ReloadTicks = 10;  Damage = 2;  CollisionRadius = 96
-      ProjectileSpeed = 4.0;   EntityType = EntityType.Shield; Enabled = true }
+    // #7 — NUCLEUS (slow drifting freeze orb — area denial in front of the ship)
+    { Name = "NUCLEUS";      ReloadTicks = 30;  Damage = 2;  CollisionRadius = 96
+      ProjectileSpeed = 1.2;   EntityType = EntityType.Shield; Enabled = true }
 
     // #8 — DIRTCLOD (lobbed with gravity, explodes on impact)
     { Name = "DIRTCLOD";     ReloadTicks = 25;  Damage = 4;  CollisionRadius = 96
       ProjectileSpeed = 3.0;   EntityType = EntityType.Exploding; Enabled = true }
 
-    // #9 — HEADSPINNER (EMP/stun, adds 180 ticks of stun)
-    { Name = "HEADSPINNER";  ReloadTicks = 35;  Damage = 0;  CollisionRadius = 96
+    // #9 — HEADSPINNER (EMP/stun, adds StunDurationPerHit ticks of stun; slow
+    // reload — a stun is a strong setup, not a spammable lockdown)
+    { Name = "HEADSPINNER";  ReloadTicks = 70;  Damage = 0;  CollisionRadius = 96
       ProjectileSpeed = 3.5;   EntityType = EntityType.EMP;    Enabled = true }
 
     // #10 — FREEZER (creates shield entity on target)
-    { Name = "FREEZER";      ReloadTicks = 50;  Damage = 0;  CollisionRadius = 128
+    { Name = "FREEZER";      ReloadTicks = 30;  Damage = 0;  CollisionRadius = 128
       ProjectileSpeed = 3.5;   EntityType = EntityType.Shield; Enabled = true }
 
     // #11 — ATOM WEAPON (nuke — travels as heavy projectile, detonates on impact)
     { Name = "ATOM WEAPON";  ReloadTicks = 250; Damage = 15; CollisionRadius = 256
       ProjectileSpeed = 3.5;   EntityType = EntityType.Heavy;  Enabled = true }
 
-    // #12 — TROOPERS (ground units that fall and shoot — not yet implemented)
-    { Name = "TROOPERS";     ReloadTicks = 50;  Damage = 2;  CollisionRadius = 96
-      ProjectileSpeed = 3.0;   EntityType = EntityType.Bullet; Enabled = false }
+    // #12 — TROOPERS (lobbed ground units that fall, dig in and fire at the sky;
+    // Damage is the damage of the bullets each trooper fires)
+    { Name = "TROOPERS";     ReloadTicks = 120; Damage = 3;  CollisionRadius = 96
+      ProjectileSpeed = 2.5;   EntityType = EntityType.Trooper; Enabled = true }
 
     // #13 — HELL FIRE (rapid flame trail, gravity-affected)
     { Name = "HELL FIRE";    ReloadTicks = 1;   Damage = 1;  CollisionRadius = 96
       ProjectileSpeed = 3.5;   EntityType = EntityType.Flame;  Enabled = true }
 
-    // #14 — MACHINEGUN (rapid fire standard bullet)
-    { Name = "MACHINEGUN";   ReloadTicks = 4;   Damage = 2;  CollisionRadius = 96
+    // #14 — MACHINEGUN (rapid fire, weak per-bullet — suppression, not a main gun)
+    { Name = "MACHINEGUN";   ReloadTicks = 6;   Damage = 4;  CollisionRadius = 96
       ProjectileSpeed = 5.0;   EntityType = EntityType.Bullet; Enabled = true }
 
     // #15 — SONICBOOM (expanding ring, high damage)
@@ -154,15 +158,16 @@ let weapons = [|
       ProjectileSpeed = 6.0;   EntityType = EntityType.Heavy;  Enabled = true }
 
     // #19 — MISSILE (homing, turns toward nearest enemy)
-    { Name = "MISSILE";      ReloadTicks = 90;  Damage = 8;  CollisionRadius = 192
+    { Name = "MISSILE";      ReloadTicks = 90;  Damage = 12;  CollisionRadius = 192
       ProjectileSpeed = 4.0;   EntityType = EntityType.Heavy;  Enabled = true }
 
     // #20 — BLACKHOLE (gravity well, pulls players + entities, 1536px search)
     { Name = "BLACKHOLE";    ReloadTicks = 180; Damage = 2;  CollisionRadius = 256
       ProjectileSpeed = 0.0;   EntityType = EntityType.Blackhole; Enabled = true }
 
-    // #21 — CANNON (single-shot: Multicannon bullet type, ~0.3 second reload)
-    { Name = "CANNON";       ReloadTicks = 12;  Damage = 2;  CollisionRadius = 96
+    // #21 — CANNON (the always-available main gun, ~0.3 second reload; hits
+    // hardest per bullet so the specials stay support weapons)
+    { Name = "CANNON";       ReloadTicks = 12;  Damage = 8;  CollisionRadius = 96
       ProjectileSpeed = 4.0;   EntityType = EntityType.Bullet; Enabled = true }
 |]
 
@@ -172,8 +177,20 @@ let getWeapon (wt: WeaponType) =
     if idx >= 0 && idx < weapons.Length then weapons[idx]
     else weapons[0]
 
-/// Standard bullet damage (entity types $01/$06)
+/// Standard bullet damage (entity types $01/$06) — legacy flat value; bullet
+/// collisions now use the per-weapon Damage from the table above.
 let bulletDamage = 5
+
+/// Atom round arming time: the heavy projectile must fly this many ticks
+/// before a wall or ship impact detonates the nuke. Earlier hits fizzle, so
+/// the nuke can't be point-blank detonated in someone's (or your own) face.
+let atomArmTicks = 25
+
+/// Trooper: ticks between the upward shots of a dug-in trooper
+let trooperFireInterval = 36
+
+/// Trooper: total lifetime in ticks before the unit expires
+let trooperLifeTicks = 450
 
 /// Heavy cannon damage formula: 6 - (timer / 4), minimum 1
 let heavyDamage (timer: int) = max 1 (6 - timer / 4)
@@ -185,13 +202,13 @@ let flameRadius (timer: int) = max 0 ((timer - 3) <<< 5)
 let ricochetMaxBounces = 3
 
 /// Nuke blast radius in pixels (expands from 0 to this over lifetime)
-let nukeBlastRadius = 80.0
+let nukeBlastRadius = 64.0
 
 /// Blackhole gravity pull radius in pixels (~1536 internal / 32)
 let blackholeRadius = 48.0
 
 /// Blackhole gravity strength
-let blackholeStrength = 0.15
+let blackholeStrength = 0.2
 
 /// Expanding entity (sonicboom) max radius
 let expandingMaxRadius = 120.0
