@@ -274,10 +274,10 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
             g.DrawLine(wallShPen, swx, swy + swh, swx + sww, swy + swh)
 
     // Draw entities (bullets, mines, etc.)
+    let margin = 40 * Scale
     for ent in gs.Entities do
         let ex = toScreenX ent.X
         let ey = toScreenY ent.Y
-        let margin = 40 * Scale
         if ex > vx - margin && ex < vx + vw + margin && ey > vy - margin && ey < vy + gameH + margin then
             match ent.EType with
             | EntityType.Expanding ->
@@ -514,12 +514,12 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                     g.FillEllipse(cachedThrustBrush, fx - Scale, fy - Scale, Scale * 2, Scale * 2)
 
                 // Shield bubble
-                if other.Flags.HasFlag(PlayerFlags.Shield) then
+                if other.Flags.HasFlag PlayerFlags.Shield then
                     let sr = 7 * Scale
                     g.DrawEllipse(cachedShieldPen, ox - sr, oy - sr, sr * 2, sr * 2)
 
                 // Stun effect (spinning stars)
-                if other.Flags.HasFlag(PlayerFlags.Stunned) then
+                if other.Flags.HasFlag PlayerFlags.Stunned then
                     for s in 0..2 do
                         let sRad = degToRad (other.AnimAngle + float s * 120.0)
                         let sx = ox + int (cos sRad * float (6 * Scale))
