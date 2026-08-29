@@ -68,7 +68,7 @@ let cycleWeapon (gs: GameState) (playerIdx: int) (dir: int) : GameState =
         let p = gs.Players[playerIdx]
         // Default rule: during a live round the special weapon can only be changed
         // while the ship is parked on a base. Toggle off (F9) to allow it anywhere.
-        let allowed = not gs.WeaponSwitchOnlyOnBase || not gs.RoundActive || p.OnBase
+        let allowed = (not (gs.WeaponSwitchOnlyOnBase && gs.RoundActive)) || p.OnBase
         if not allowed then gs
         else
             let len = weapons.Length
@@ -289,12 +289,12 @@ type GameForm() as this =
             applyPlayerCount ()
         | _ -> ()
 
-        base.OnKeyDown(e)
+        base.OnKeyDown e
 
     override _.OnKeyUp(e: KeyEventArgs) =
         keyStates.Remove(e.KeyCode) |> ignore
         e.Handled <- true
-        base.OnKeyUp(e)
+        base.OnKeyUp e
 
     member _.GameLoop() =
         let pads = if gs.GamepadsEnabled then connectedPads () else [||]
@@ -311,7 +311,7 @@ type GameForm() as this =
                 padPrev[i] <- (pad.WeaponPrev, pad.WeaponNext, pad.Start))
 
         // Map key states + held pad controls to player inputs
-        this.MapInputs(pads)
+        this.MapInputs pads
 
         if gs.RoundActive then
             gs <- gameTick gs
@@ -319,7 +319,7 @@ type GameForm() as this =
         this.Invalidate()
 
     member private _.MapInputs(pads: PadInput[]) =
-        let has k = keyStates.Contains(k)
+        let has k = keyStates.Contains k
 
         let players =
             gs.Players |> List.mapi (fun i p ->

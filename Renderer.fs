@@ -274,10 +274,10 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
             g.DrawLine(wallShPen, swx, swy + swh, swx + sww, swy + swh)
 
     // Draw entities (bullets, mines, etc.)
+    let margin = 40 * Scale
     for ent in gs.Entities do
         let ex = toScreenX ent.X
         let ey = toScreenY ent.Y
-        let margin = 40 * Scale
         if ex > vx - margin && ex < vx + vw + margin && ey > vy - margin && ey < vy + gameH + margin then
             match ent.EType with
             | EntityType.Expanding ->
@@ -524,14 +524,14 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                     g.FillEllipse(cachedThrustBrush, fx - Scale, fy - Scale, Scale * 2, Scale * 2)
 
                 // Shield bubble
-                if other.Flags.HasFlag(PlayerFlags.Shield) then
+                if other.Flags.HasFlag PlayerFlags.Shield then
                     let sr = 7 * Scale
                     g.DrawEllipse(cachedShieldPen, ox - sr, oy - sr, sr * 2, sr * 2)
 
                 // Magnofilter deflector field: pulsing teal QUARTER arc over
                 // the nose — the field only covers ±45° forward, tail is open
                 // (GDI+ arc angles are degrees clockwise from +x; facing = -(Angle+90))
-                if other.Flags.HasFlag(PlayerFlags.Magno) then
+                if other.Flags.HasFlag PlayerFlags.Magno then
                     let mPulse = sin (float gs.GameTick * 0.25)
                     let mR = int (float (9 * Scale) + mPulse * float Scale)
                     let mAlpha = 110 + int (50.0 * mPulse)
@@ -540,7 +540,7 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                     g.DrawArc(mPen, Rectangle(ox - mR, oy - mR, mR * 2, mR * 2), mFacing - 45.0f, 90.0f)
 
                 // Stun effect (spinning stars)
-                if other.Flags.HasFlag(PlayerFlags.Stunned) then
+                if other.Flags.HasFlag PlayerFlags.Stunned then
                     for s in 0..2 do
                         let sRad = degToRad (other.AnimAngle + float s * 120.0)
                         let sx = ox + int (cos sRad * float (6 * Scale))
