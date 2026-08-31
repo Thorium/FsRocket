@@ -42,9 +42,10 @@ let duel (wA: WeaponType) (wB: WeaponType) (seed: int) =
     let pin (g: GameState) =
         { g with
             Players = g.Players |> List.mapi (fun i p ->
-                if i = 0 then { p with SpecialWeapon = wA }
-                elif i = 1 then { p with SpecialWeapon = wB }
-                else p) }
+                match i with
+                | 0 -> { p with SpecialWeapon = wA }
+                | 1 -> { p with SpecialWeapon = wB }
+                | _ -> p) }
     let mutable gs = initRound gs0 |> pin
     for _ in 1 .. duelTicks do
         gs <- gameTick gs |> pin

@@ -218,14 +218,14 @@ let simGravity (p: SimPlayer) =
 
 /// Simulate fire check: KeyFire && ReloadTimer=0 && Ammo>0 && canControl
 let simFireCheck (p: SimPlayer) =
-    let canControl = not (p.Flags.HasFlag(PF.Stunned))
+    let canControl = not (p.Flags.HasFlag PF.Stunned)
     p.KeyFire && p.ReloadTimer = 0 && p.Ammo > 0 && canControl
 
 /// Simulate the DOWN key dispatch logic from ASM 0000:AE1F..AE79
 /// Returns: true if fireSpecial would be called, false otherwise
 let simDownKeyDispatch (p: SimPlayer) =
-    let canControl = not (p.Flags.HasFlag(PF.Stunned))
-    if not p.KeyDown || not canControl then false
+    let canControl = not (p.Flags.HasFlag PF.Stunned)
+    if not (p.KeyDown && canControl) then false
     else
         match p.WeaponType with
         | 12 -> false  // TROOPERS: DOWN does nothing
@@ -482,16 +482,16 @@ printfn "-- Test 18: FireSpecial behavior per weapon --"
 // Test toggle behavior (weapon 2)
 let tog = mkPlayer ()
 tog.WeaponType <- 2
-let wasStunned = tog.Flags.HasFlag(PF.Stunned)
+let wasStunned = tog.Flags.HasFlag PF.Stunned
 // Simulate toggle: if stunned, clear; else set
-if tog.Flags.HasFlag(PF.Stunned) then
+if tog.Flags.HasFlag PF.Stunned then
     tog.Flags <- tog.Flags &&& ~~~PF.Stunned
 else
     tog.Flags <- tog.Flags ||| PF.Stunned
-let isStunned = tog.Flags.HasFlag(PF.Stunned)
+let isStunned = tog.Flags.HasFlag PF.Stunned
 check "MAGNOFILTER toggle: flips stunned" (wasStunned <> isStunned)
 // Toggle back
-if tog.Flags.HasFlag(PF.Stunned) then
+if tog.Flags.HasFlag PF.Stunned then
     tog.Flags <- tog.Flags &&& ~~~PF.Stunned
 else
     tog.Flags <- tog.Flags ||| PF.Stunned
@@ -567,7 +567,7 @@ let stunP = mkPlayer ()
 stunP.Flags <- PF.Active ||| PF.Stunned
 stunP.StunTimer <- 50
 stunP.KeyUp <- true; stunP.KeyLeft <- true; stunP.KeyFire <- true
-let canControlStunned = not (stunP.Flags.HasFlag(PF.Stunned))
+let canControlStunned = not (stunP.Flags.HasFlag PF.Stunned)
 check "stunned: canControl = false" (canControlStunned = false)
 check "stunned: fire check fails" (simFireCheck stunP = false)
 check "stunned: DOWN dispatch fails" (begin stunP.KeyDown <- true; simDownKeyDispatch stunP = false end)
@@ -578,7 +578,7 @@ printfn "-- Test 23: Shield blocks ALL input (including gravity path) --"
 // Only position update + shield decay run (from ASM: jump at A879 skips to AE79)
 let shP = mkPlayer ()
 shP.Flags <- PF.Active ||| PF.Shield
-let shieldBlocksNormalInput = shP.Flags.HasFlag(PF.Shield)
+let shieldBlocksNormalInput = shP.Flags.HasFlag PF.Shield
 check "shield: blocks normal input path" shieldBlocksNormalInput
 
 // ══════════════════════════════════════════════════════════════════════

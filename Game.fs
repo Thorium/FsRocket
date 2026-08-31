@@ -1047,10 +1047,10 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             // are individually weaker support fire.
                             | EntityType.Bullet | EntityType.BulletAlt -> max 1 (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Mine -> if ent.Timer > 0 then 30 else 0
-                            | EntityType.EMP -> 0
+                            | EntityType.EMP
                             | EntityType.Shield -> 0
                             | EntityType.Ricochet -> 3
-                            | EntityType.PassThrough -> 1
+                            | EntityType.PassThrough
                             | EntityType.Laser -> 1
                             // Homing missiles arrive late by nature, so the
                             // flight-time damage decay would gut them — they
@@ -1058,7 +1058,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             | EntityType.Heavy when ent.WeaponIdx = WeaponType.Missile -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Heavy -> heavyDamage ent.Timer
                             | EntityType.Flame -> 1
-                            | EntityType.Nuke -> 15
+                            | EntityType.Nuke
                             | EntityType.Railgun -> 15
                             | EntityType.Shrapnel -> 1
                             | EntityType.Expanding -> 10
