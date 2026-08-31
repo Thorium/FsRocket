@@ -179,17 +179,21 @@ let getWeapon (wt: WeaponType) =
 
 /// Standard bullet damage (entity types $01/$06) — legacy flat value; bullet
 /// collisions now use the per-weapon Damage from the table above.
+[<Literal>]
 let bulletDamage = 5
 
 /// Atom round arming time: the heavy projectile must fly this many ticks
 /// before a wall or ship impact detonates the nuke. Earlier hits fizzle, so
 /// the nuke can't be point-blank detonated in someone's (or your own) face.
+[<Literal>]
 let atomArmTicks = 25
 
 /// Trooper: ticks between the upward shots of a dug-in trooper
+[<Literal>]
 let trooperFireInterval = 36
 
 /// Trooper: total lifetime in ticks before the unit expires
+[<Literal>]
 let trooperLifeTicks = 450
 
 /// Heavy cannon damage formula: 6 - (timer / 4), minimum 1
@@ -199,25 +203,33 @@ let heavyDamage (timer: int) = max 1 (6 - timer / 4)
 let flameRadius (timer: int) = max 0 ((timer - 3) <<< 5)
 
 /// Ricochet max bounces before deactivation
+[<Literal>]
 let ricochetMaxBounces = 3
 
 /// Nuke blast radius in pixels (expands from 0 to this over lifetime)
+[<Literal>]
 let nukeBlastRadius = 64.0
 
 /// Blackhole gravity pull radius in pixels (~1536 internal / 32)
+[<Literal>]
 let blackholeRadius = 48.0
 
 /// Blackhole gravity strength
+[<Literal>]
 let blackholeStrength = 0.2
 
 /// Expanding entity (sonicboom) max radius
+[<Literal>]
 let expandingMaxRadius = 120.0
 
 /// Expanding entity growth rate per tick
+[<Literal>]
 let expandingGrowthRate = 3.0
 
 /// Laser beam length in pixels
+[<Literal>]
 let laserLength = 200.0
 
 /// Missile homing turn rate (degrees per tick)
+[<Literal>]
 let missileHomingRate = 4.0

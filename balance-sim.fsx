@@ -27,7 +27,9 @@ let level =
     loadLevel candidate
 let pristine = Array.copy level.Pixels
 
-let duelTicks = 3600   // 100 s of game time per duel at 36 fps
+/// 100 s of game time per duel at 36 fps
+[<Literal>]
+let duelTicks = 3600
 
 /// Run one duel: P1 uses wA, P2 uses wB. Returns (killsA, deathsA, killsB, deathsB).
 let duel (wA: WeaponType) (wB: WeaponType) (seed: int) =

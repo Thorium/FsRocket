@@ -16,10 +16,12 @@ open FsRocket.Entities
 
 // ─── Scale factor (3x 320x200) ───────────────────────────
 
+[<Literal>]
 let Scale = 3
 
 /// Extra zoom factor for terrain bitmaps — makes terrain features appear bigger
 /// 1.0 = original size, >1.0 = zoomed in (bigger terrain features)
+[<Literal>]
 let TerrainZoom = 1.25
 
 // ─── Color palette (approximate VGA Mode 13h palette) ──────────────────
@@ -40,7 +42,8 @@ let playerDarkColors = [|
 
 let bgColor = Color.FromArgb(0x00, 0x00, 0x00)
 let wallColor = Color.FromArgb(0x40, 0x40, 0x50)
-let basePadColor = Color.FromArgb(0x30, 0xC0, 0x60)   // Landing pad / base — distinct green bar
+/// Landing pad / base — distinct green bar
+let basePadColor = Color.FromArgb(0x30, 0xC0, 0x60)
 let gridColor = Color.FromArgb(0x18, 0x18, 0x24)
 let bulletColor = Color.FromArgb(0xFF, 0xFF, 0x80)
 let mineColor = Color.FromArgb(0xFF, 0x60, 0x20)
@@ -682,7 +685,9 @@ let drawBorder (g: Graphics) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) 
 /// 960x600 window and zoomed up uniformly to fill the client area, so a
 /// bigger window means bigger pixels — not more visible map (limited
 /// per-viewport visibility is part of the game design).
+[<Literal>]
 let designW = 960.0
+[<Literal>]
 let designH = 600.0
 
 /// Uniform zoom factor from the physical client size. One axis is exactly

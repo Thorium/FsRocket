@@ -136,6 +136,7 @@ type private PadInput =
 
 /// Left-stick deadzone (0.35 of full deflection) and trigger threshold.
 let private stickDeadzone = int16 (0.35 * 32767.0)
+[<Literal>]
 let private triggerThreshold = 64uy
 
 /// Set false forever if the XInput DLL is missing (pre-Win8 systems).

@@ -11,7 +11,8 @@ open FsRocket.Types
 
 // ─── Factory Functions ─────────────────────────────────────────────────
 
-let playerColors = [| 0x1F; 0x28; 0x30; 0x38 |]  // Blue, Green, Red, Yellow-ish
+/// Blue, Green, Red, Yellow-ish
+let playerColors = [| 0x1F; 0x28; 0x30; 0x38 |]
 
 let createPlayer (index: int) : Player =
     { PosX = 0.0; PosY = 0.0; Angle = SpawnDirection
@@ -140,8 +141,11 @@ let collides (x1: float) (y1: float) (r1: float) (x2: float) (y2: float) (r2: fl
 // exactly the ship the player sees — a shot can miss through the gap beside
 // the nose, and a nose-first ram connects before a sideways brush.
 
+[<Literal>]
 let ShipNoseLen = 4.0
-let ShipRearLen = 2.8   // 0.7 * nose
+/// 0.7 * nose
+[<Literal>]
+let ShipRearLen = 2.8
 let private shipRearAngle = 0.75 * Math.PI
 
 /// Ship hull triangle vertices (nose, rear-left, rear-right) in world px.

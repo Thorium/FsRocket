@@ -134,7 +134,9 @@ let PositionScale = 32.0
 // ─── Arena / Viewport ──────────────────────────────────────────────────
 
 /// Arena pixel dimensions — single source of truth for map size
+[<Literal>]
 let MapWidth = 320
+[<Literal>]
 let MapHeight = 400
 
 /// Arena pixel dimensions as float (for physics calculations)
@@ -142,7 +144,9 @@ let ArenaWidth = float MapWidth
 let ArenaHeight = float MapHeight
 
 /// Per-player viewport size (156x86 pixels)
+[<Literal>]
 let ViewportWidth = 156
+[<Literal>]
 let ViewportHeight = 86
 
 // ─── Timing ────────────────────────────────────────────────────────────
@@ -192,9 +196,13 @@ let BaseLandSpeed = 1.0
 
 // ─── Entity Pool Sizes ─────────────────────────────────────────────────
 
+[<Literal>]
 let MaxEntities = 152
+[<Literal>]
 let MaxBullets = 48
+[<Literal>]
 let MaxParticles = 48
+[<Literal>]
 let MaxExplosions = 10
 
 // ─── Initial Spawn ─────────────────────────────────────────────────────

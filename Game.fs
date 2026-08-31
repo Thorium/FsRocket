@@ -893,10 +893,13 @@ let applyBlackholePull (entities: Entity list) (players: Player list) (numPlayer
 // the front is strongly protected but the tail stays open, so skilled
 // flying — keeping your nose toward the threat — is what makes it work.
 
+[<Literal>]
 let magnofilterPullRadius = 60.0
+[<Literal>]
 let magnofilterStrength = 0.25
 /// cos 45° — a projectile is inside the field when the ship-to-projectile
 /// direction is within ±45° of the ship's facing
+[<Literal>]
 let private magnofilterArcCos = 0.7071
 
 let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: int) : Entity list =
