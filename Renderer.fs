@@ -12,8 +12,10 @@ open FsRocket.Types
 open FsRocket.Entities
 
 // ─── Scale factor (3x 320x200) ──────────────────────────────────────────
+[<Literal>]
 let Scale = 3
 /// Extra zoom factor for terrain — makes features appear bigger
+[<Literal>]
 let TerrainZoom = 1.25
 let private scaleF = float Scale
 let private effScale = scaleF * TerrainZoom
@@ -94,22 +96,36 @@ let playerColors = playerRGB |> Array.map (fun (r, g, b) -> cssRGB r g b)
 let playerDarkColors = playerDarkRGB |> Array.map (fun (r, g, b) -> cssRGB r g b)
 let private playerRGBA (i: int) (a: int) = let (r, g, b) = playerRGB[i % 4] in cssRGBA r g b a
 
+[<Literal>]
 let private bgColor = "rgb(0,0,0)"
+[<Literal>]
 let private gridColor = "rgb(24,24,36)"
+[<Literal>]
 let private bulletColor = "rgb(255,255,128)"
+[<Literal>]
 let private laserColor = "rgb(255,32,32)"
+[<Literal>]
 let private shieldColor = "rgb(128,192,255)"
+[<Literal>]
 let private empColor = "rgb(192,64,255)"
+[<Literal>]
 let private hudBgColor = "rgb(8,8,16)"
+[<Literal>]
 let private healthBgColor = "rgb(48,0,0)"
+[<Literal>]
 let private thrustColor = "rgb(255,160,32)"
 /// Landing pad / base — distinct green bar
 let private basePadArgb = (0xFF <<< 24) ||| (0x30 <<< 16) ||| (0xC0 <<< 8) ||| 0x60
 
+[<Literal>]
 let private hudFont = "bold 11px Consolas, monospace"
+[<Literal>]
 let private bigFont = "bold 20px Consolas, monospace"
+[<Literal>]
 let private titleFont = "bold 26px Consolas, monospace"
+[<Literal>]
 let private subFont = "13px Consolas, monospace"
+[<Literal>]
 let private keyFont = "12px Consolas, monospace"
 
 // ─── Mid-level draw helpers ──────────────────────────────────────────────
@@ -465,20 +481,20 @@ let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (v
                     let flLen = float (3 * Scale) + float (gs.GameTick % 3) * scaleF
                     fillCircle ctx (ox + cos tRad * flLen) (oy - sin tRad * flLen) scaleF thrustColor
 
-                if other.Flags.HasFlag(PlayerFlags.Shield) then
+                if other.Flags.HasFlag PlayerFlags.Shield then
                     strokeCircle ctx ox oy (float (7 * Scale)) scaleF shieldColor
 
                 // Magnofilter deflector field: pulsing teal QUARTER arc over
                 // the nose — the field only covers ±45° forward, tail is open
                 // (canvas arc angles are clockwise from +x; facing = -rad)
-                if other.Flags.HasFlag(PlayerFlags.Magno) then
+                if other.Flags.HasFlag PlayerFlags.Magno then
                     let mPulse = sin (float gs.GameTick * 0.25)
                     let mR = float (9 * Scale) + mPulse * scaleF
                     let mAlpha = 110 + int (50.0 * mPulse)
                     let mFacing = -(degToRad (other.Angle + 90.0))
                     strokeArc ctx ox oy mR (mFacing - Math.PI / 4.0) (mFacing + Math.PI / 4.0) (scaleF * 0.7) (cssRGBA 64 255 192 mAlpha)
 
-                if other.Flags.HasFlag(PlayerFlags.Stunned) then
+                if other.Flags.HasFlag PlayerFlags.Stunned then
                     for s in 0..2 do
                         let sRad = degToRad (other.AnimAngle + float s * 120.0)
                         fillCircle ctx (ox + cos sRad * float (6 * Scale)) (oy - sin sRad * float (6 * Scale)) (scaleF / 2.0) empColor

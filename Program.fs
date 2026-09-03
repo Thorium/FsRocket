@@ -76,7 +76,7 @@ let private assetUrl (file: string) =
         else
             let i = p.LastIndexOf "/"
             let seg = p.Substring(i + 1)
-            if seg.Contains "." then p.Substring(0, i + 1) else p + "/"
+            if seg.Contains '.' then p.Substring(0, i + 1) else p + "/"
     basePath + file
 
 // ─── State ───────────────────────────────────────────────────────────────
@@ -87,7 +87,9 @@ let private ctx = get2dCtx canvas
 /// 960x600 canvas and zoomed up uniformly to fill the window, so a bigger
 /// window means bigger pixels — not more visible map (limited per-viewport
 /// visibility is part of the game design).
+[<Literal>]
 let private designW = 960.0
+[<Literal>]
 let private designH = 600.0
 
 /// Canvas size in logical pixels: the fitted axis is exactly 960 (or 600),
@@ -194,7 +196,7 @@ let private onLevelFile (e: obj) =
     let input = evTarget e
     let raw = firstFileName input
     let name =
-        let stem = if raw.Contains "." then raw.Substring(0, raw.LastIndexOf ".") else raw
+        let stem = if raw.Contains '.' then raw.Substring(0, raw.LastIndexOf ".") else raw
         if stem = "" then "UPLOAD" else stem.ToUpperInvariant()
     readFileBytes input (fun bytes ->
         try addLevel (loadLevelFromBytes name bytes) true
@@ -210,7 +212,7 @@ let private switchLevel (delta: int) =
 let private cycleWeapon (playerIdx: int) (dir: int) =
     if playerIdx < gs.NumPlayers then
         let p = gs.Players[playerIdx]
-        let allowed = not gs.WeaponSwitchOnlyOnBase || not gs.RoundActive || p.OnBase
+        let allowed = (not (gs.WeaponSwitchOnlyOnBase && gs.RoundActive)) || p.OnBase
         if allowed then
             let len = weapons.Length
             let mutable wt = (int p.SpecialWeapon + dir + len) % len
@@ -240,6 +242,7 @@ let private padButton (pad: obj) (i: int) : bool = jsNative
 [<Emit("$0.axes[$1] || 0")>]
 let private padAxis (pad: obj) (i: int) : float = jsNative
 
+[<Literal>]
 let private stickDeadzone = 0.35
 
 /// Previous LB/RB/Start state per pad slot, for edge-triggered actions
@@ -358,6 +361,7 @@ let private onKeyUp (e: obj) =
     keys.Remove(evCode e) |> ignore
 
 // ─── Game loop (fixed 36 FPS step, rendered every animation frame) ──────────
+[<Literal>]
 let private frameMs = 28.0
 let mutable private lastTime = 0.0
 let mutable private acc = 0.0

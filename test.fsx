@@ -15,18 +15,31 @@ open System
 
 // ── Constants (from Physics.fs) ──
 
+[<Literal>]
 let ThrustAccel = 0.1
+[<Literal>]
 let GravityAccel = 0.02
+[<Literal>]
 let FrictionDecel = -0.06
+[<Literal>]
 let MaxVelocity = 2.0
+[<Literal>]
 let FrictionMaxVel = 1.0
+[<Literal>]
 let TurnSpeed = 8.0
+[<Literal>]
 let MaxAngle = 360.0
+[<Literal>]
 let PositionScale = 32.0
+[<Literal>]
 let ArenaWidth = 320.0
+[<Literal>]
 let ArenaHeight = 400.0
+[<Literal>]
 let SpawnDirection = 90.0
+[<Literal>]
 let FullHealth = 90
+[<Literal>]
 let SpawnInvincibilityTicks = 16
 
 let inline clampF lo hi v = max lo (min hi v)
@@ -140,6 +153,7 @@ check "left turn from 356: angle = 4" (approx angle 4.0)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "-- Test 6: Projectile spawn direction --"
+[<Literal>]
 let bulletSpeed = 4.0
 let pRad = degToRad (0.0 + 90.0)
 let bvx = cos pRad * bulletSpeed
@@ -163,6 +177,7 @@ check "rear turret angle=0: VelY ~ 4.0 (downward)" (approx rtvy 4.0)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "-- Test 8: Multicannon -- 3-way spread --"
+[<Literal>]
 let mcSpeed = 4.0
 let offsets = [| -2.2; 0.0; 2.2 |]
 let mcResults =
@@ -173,8 +188,10 @@ check "multicannon center: VelY ~ -4.0" (approx (snd mcResults[1]) (-4.0))
 // With angle=0, fire direction = 90 degrees.
 // Offset -2.2 → 87.8° → cos(87.8°) > 0 (slight right), sin(87.8°) ≈ 1
 // Offset +2.2 → 92.2° → cos(92.2°) < 0 (slight left), sin(92.2°) ≈ 1
-let leftVx = fst mcResults[0]   // -2.2 offset → slight rightward
-let rightVx = fst mcResults[2]  // +2.2 offset → slight leftward
+/// -2.2 offset → slight rightward
+let leftVx = fst mcResults[0]
+/// +2.2 offset → slight leftward
+let rightVx = fst mcResults[2]
 check "multicannon spread: -2.2 offset gives VelX > 0 (right)" (leftVx > 0.0)
 check "multicannon spread: +2.2 offset gives VelX < 0 (left)" (rightVx < 0.0)
 check "multicannon spread: symmetric" (approx (abs leftVx) (abs rightVx))
@@ -218,14 +235,14 @@ let simGravity (p: SimPlayer) =
 
 /// Simulate fire check: KeyFire && ReloadTimer=0 && Ammo>0 && canControl
 let simFireCheck (p: SimPlayer) =
-    let canControl = not (p.Flags.HasFlag(PF.Stunned))
+    let canControl = not (p.Flags.HasFlag PF.Stunned)
     p.KeyFire && p.ReloadTimer = 0 && p.Ammo > 0 && canControl
 
 /// Simulate the DOWN key dispatch logic from ASM 0000:AE1F..AE79
 /// Returns: true if fireSpecial would be called, false otherwise
 let simDownKeyDispatch (p: SimPlayer) =
-    let canControl = not (p.Flags.HasFlag(PF.Stunned))
-    if not p.KeyDown || not canControl then false
+    let canControl = not (p.Flags.HasFlag PF.Stunned)
+    if not (p.KeyDown && canControl) then false
     else
         match p.WeaponType with
         | 12 -> false  // TROOPERS: DOWN does nothing
@@ -482,16 +499,16 @@ printfn "-- Test 18: FireSpecial behavior per weapon --"
 // Test toggle behavior (weapon 2)
 let tog = mkPlayer ()
 tog.WeaponType <- 2
-let wasStunned = tog.Flags.HasFlag(PF.Stunned)
+let wasStunned = tog.Flags.HasFlag PF.Stunned
 // Simulate toggle: if stunned, clear; else set
-if tog.Flags.HasFlag(PF.Stunned) then
+if tog.Flags.HasFlag PF.Stunned then
     tog.Flags <- tog.Flags &&& ~~~PF.Stunned
 else
     tog.Flags <- tog.Flags ||| PF.Stunned
-let isStunned = tog.Flags.HasFlag(PF.Stunned)
+let isStunned = tog.Flags.HasFlag PF.Stunned
 check "MAGNOFILTER toggle: flips stunned" (wasStunned <> isStunned)
 // Toggle back
-if tog.Flags.HasFlag(PF.Stunned) then
+if tog.Flags.HasFlag PF.Stunned then
     tog.Flags <- tog.Flags &&& ~~~PF.Stunned
 else
     tog.Flags <- tog.Flags ||| PF.Stunned
@@ -521,26 +538,36 @@ printfn "-- Test 19: Enter as backup fire key --"
 // Program.fs maps P2 fire as: has Keys.RShiftKey || has Keys.Enter
 // We verify the logic: if either key returns true, KeyFire is set
 // (Can't test actual WinForms key events in fsx, but verify the OR logic)
-let hasRShift = false  // Simulate RShift not working (shift key bug)
-let hasEnter = true    // Simulate Enter pressed
+/// Simulate RShift not working (shift key bug)
+[<Literal>]
+let hasRShift = false
+/// Simulate Enter pressed
+[<Literal>]
+let hasEnter = true
 let keyFire = hasRShift || hasEnter
 check "Enter as backup: fires when Enter pressed" (keyFire = true)
 
+[<Literal>]
 let hasRShift2 = true
+[<Literal>]
 let hasEnter2 = false
 let keyFire2 = hasRShift2 || hasEnter2
 check "RShift alone: still fires" (keyFire2 = true)
 
+[<Literal>]
 let hasRShift3 = false
+[<Literal>]
 let hasEnter3 = false
 let keyFire3 = hasRShift3 || hasEnter3
 check "neither key: no fire" (keyFire3 = false)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "-- Test 20: Position scaling --"
+[<Literal>]
 let internalPos = 3200.0
 let pixelPos = internalPos / PositionScale
 check "3200 internal = 100 px" (approx pixelPos 100.0)
+[<Literal>]
 let testVel = 1.5
 let posDelta = testVel * PositionScale
 let pixelDelta = posDelta / PositionScale
@@ -567,7 +594,7 @@ let stunP = mkPlayer ()
 stunP.Flags <- PF.Active ||| PF.Stunned
 stunP.StunTimer <- 50
 stunP.KeyUp <- true; stunP.KeyLeft <- true; stunP.KeyFire <- true
-let canControlStunned = not (stunP.Flags.HasFlag(PF.Stunned))
+let canControlStunned = not (stunP.Flags.HasFlag PF.Stunned)
 check "stunned: canControl = false" (canControlStunned = false)
 check "stunned: fire check fails" (simFireCheck stunP = false)
 check "stunned: DOWN dispatch fails" (begin stunP.KeyDown <- true; simDownKeyDispatch stunP = false end)
@@ -578,7 +605,7 @@ printfn "-- Test 23: Shield blocks ALL input (including gravity path) --"
 // Only position update + shield decay run (from ASM: jump at A879 skips to AE79)
 let shP = mkPlayer ()
 shP.Flags <- PF.Active ||| PF.Shield
-let shieldBlocksNormalInput = shP.Flags.HasFlag(PF.Shield)
+let shieldBlocksNormalInput = shP.Flags.HasFlag PF.Shield
 check "shield: blocks normal input path" shieldBlocksNormalInput
 
 // ══════════════════════════════════════════════════════════════════════

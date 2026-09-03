@@ -50,7 +50,7 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
     | WeaponType.Magnofilter ->
         // MAGNOFILTER — fire key toggles the field (same as DOWN)
         let flags =
-            if p.Flags.HasFlag(PlayerFlags.Magno) then p.Flags &&& ~~~PlayerFlags.Magno
+            if p.Flags.HasFlag PlayerFlags.Magno then p.Flags &&& ~~~PlayerFlags.Magno
             else p.Flags ||| PlayerFlags.Magno
         { p with Flags = flags; ReloadTimer = 10 }, []
 
@@ -76,10 +76,10 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
                         Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->  // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
-        p, [ makeProjectile p ownerIdx p.WeaponType ]
-
-    | WeaponType.AtomWeapon -> // ATOM WEAPON — travels as heavy projectile, detonates on impact
+    | WeaponType.Dirtclod
+    // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
+    | WeaponType.AtomWeapon ->
+        // ATOM WEAPON — travels as heavy projectile, detonates on impact
         p, [ makeProjectile p ownerIdx p.WeaponType ]
 
     // | WeaponType.Troopers -> // TROOPERS — TODO: deploy ground units that shoot nearby opponents
@@ -139,7 +139,7 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
     | WeaponType.Magnofilter ->
         // MAGNOFILTER — toggle flag (no projectile, still gets recoil)
         let flags =
-            if p.Flags.HasFlag(PlayerFlags.Magno) then p.Flags &&& ~~~PlayerFlags.Magno
+            if p.Flags.HasFlag PlayerFlags.Magno then p.Flags &&& ~~~PlayerFlags.Magno
             else p.Flags ||| PlayerFlags.Magno
         { p with Flags = flags; KeyDown = false; SpecialReloadTimer = 10 }, []
 
@@ -202,14 +202,10 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
                         EType = EntityType.Mine; Owner = ownerIdx; Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->
-        // DIRTCLOD: lobbed with gravity
-        p, [ makeProjectile p ownerIdx sw ]
-
-    | WeaponType.Headspinner ->
-        // HEADSPINNER: EMP/stun shot
-        p, [ makeProjectile p ownerIdx sw ]
-
+    | WeaponType.Dirtclod
+    // DIRTCLOD: lobbed with gravity
+    | WeaponType.Headspinner
+    // HEADSPINNER: EMP/stun shot
     | WeaponType.Freezer ->
         // FREEZER: shield entity on target
         p, [ makeProjectile p ownerIdx sw ]
@@ -252,7 +248,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     if not p.Alive then (p, [], [], false) else
 
     // Shield blocks ALL input — cleared only by terrain contact or pass-through
-    if p.Flags.HasFlag(PlayerFlags.Shield) then
+    if p.Flags.HasFlag PlayerFlags.Shield then
         let velY = min (p.VelY + GravityAccel) MaxVelocity
         let px = p.PosX + p.VelX * PositionScale
         let py = p.PosY + velY * PositionScale
@@ -301,7 +297,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
         if a >= MaxAngle then a - MaxAngle else a
 
     // Input processing (unless stunned)
-    let canControl = not (flags.HasFlag(PlayerFlags.Stunned))
+    let canControl = not (flags.HasFlag PlayerFlags.Stunned)
 
     // Turning
     let angle =
@@ -331,7 +327,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
 
     // Drunk wobble
     let velX, velY =
-        if flags.HasFlag(PlayerFlags.Drunk) then
+        if flags.HasFlag PlayerFlags.Drunk then
             let wobble1 = angle - 45.0 + float (gs.Rng.Next 90)
             let wobble2 = angle + 45.0 + float (gs.Rng.Next 90)
             let rad1 = degToRad wobble1
@@ -651,8 +647,8 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         if ent.WeaponIdx <> WeaponType.Missile then
             vy <- vy + 0.06
 
-        let mutable x = ent.X + vx
-        let mutable y = ent.Y + vy
+        let x = ent.X + vx
+        let y = ent.Y + vy
 
         // Missile homing (weapon 19)
         let particles =
@@ -893,10 +889,13 @@ let applyBlackholePull (entities: Entity list) (players: Player list) (numPlayer
 // the front is strongly protected but the tail stays open, so skilled
 // flying — keeping your nose toward the threat — is what makes it work.
 
+[<Literal>]
 let magnofilterPullRadius = 60.0
+[<Literal>]
 let magnofilterStrength = 0.25
 /// cos 45° — a projectile is inside the field when the ship-to-projectile
 /// direction is within ±45° of the ship's facing
+[<Literal>]
 let private magnofilterArcCos = 0.7071
 
 let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: int) : Entity list =
@@ -986,7 +985,7 @@ let checkTrooperHits (rng: Random) (entities: Entity list) : Entity list * Parti
                         if abs (sqrt (dx*dx + dy*dy) - b.Radius) < 6.0 then
                             killTrooper ti
             | _ -> ()
-        (es |> Array.toList |> List.filter (fun e -> e.EType <> EntityType.None), parts)
+        (es |> Array.filter (fun e -> e.EType <> EntityType.None) |> Array.toList, parts)
 
 // ─── Bullet-Player Collision ───────────────────────────────────────────
 // Returns (updated Player list, updated Entity list, new Particle list, terrainModified)
@@ -1047,10 +1046,10 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             // are individually weaker support fire.
                             | EntityType.Bullet | EntityType.BulletAlt -> max 1 (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Mine -> if ent.Timer > 0 then 30 else 0
-                            | EntityType.EMP -> 0
+                            | EntityType.EMP
                             | EntityType.Shield -> 0
                             | EntityType.Ricochet -> 3
-                            | EntityType.PassThrough -> 1
+                            | EntityType.PassThrough
                             | EntityType.Laser -> 1
                             // Homing missiles arrive late by nature, so the
                             // flight-time damage decay would gut them — they
@@ -1058,7 +1057,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             | EntityType.Heavy when ent.WeaponIdx = WeaponType.Missile -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Heavy -> heavyDamage ent.Timer
                             | EntityType.Flame -> 1
-                            | EntityType.Nuke -> 15
+                            | EntityType.Nuke
                             | EntityType.Railgun -> 15
                             | EntityType.Shrapnel -> 1
                             | EntityType.Expanding -> 10
@@ -1079,7 +1078,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
 
                             // Knockback
                             let knockScale =
-                                if np.Flags.HasFlag(PlayerFlags.Shield) then ShieldKnockbackScale
+                                if np.Flags.HasFlag PlayerFlags.Shield then ShieldKnockbackScale
                                 else NormalKnockbackScale
                             if ent.VelX <> 0.0 || ent.VelY <> 0.0 then
                                 match ent.EType with
@@ -1217,7 +1216,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
         es[ei] <- ent
 
     // Filter out "removed" entities (marked with EType = None)
-    let entities = es |> Array.toList |> List.filter (fun e -> e.EType <> EntityType.None)
+    let entities = es |> Array.filter (fun e -> e.EType <> EntityType.None) |> Array.toList
     (Array.toList ps, entities, newParticles, dirty)
 
 // ─── Player-Player Collision ───────────────────────────────────────────
@@ -1451,7 +1450,7 @@ let cpuAI (gs: GameState) : GameState =
                             // Normal pursuit: thrust toward enemy, with personality aggression.
                             // A frozen enemy is a falling wrecking ball — keep clear instead
                             // of flying into the player-player collision fling.
-                            let enemyFrozen = enemy.Flags.HasFlag(PlayerFlags.Shield)
+                            let enemyFrozen = enemy.Flags.HasFlag PlayerFlags.Shield
                             let wantClose = not enemyFrozen && dist > 50.0 * (2.0 - personality.Aggression)
                             let tooClose = dist < (if enemyFrozen then 60.0 else 25.0)
                             (wantClose || phase < 8) && not tooClose
@@ -1461,7 +1460,7 @@ let cpuAI (gs: GameState) : GameState =
                         match p.SpecialWeapon with
                         | WeaponType.Magnofilter ->
                             // Toggle magno when enemy projectiles are nearby
-                            threatCount > 0 && not (p.Flags.HasFlag(PlayerFlags.Magno))
+                            threatCount > 0 && not (p.Flags.HasFlag PlayerFlags.Magno)
                         | WeaponType.Multicannon ->
                             // Use 360° burst when enemy is close (regular fire)
                             // Use tight burst (special) when aimed at range
