@@ -76,10 +76,10 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
                         Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->  // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
-        p, [ makeProjectile p ownerIdx p.WeaponType ]
-
-    | WeaponType.AtomWeapon -> // ATOM WEAPON — travels as heavy projectile, detonates on impact
+    | WeaponType.Dirtclod
+    // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
+    | WeaponType.AtomWeapon ->
+        // ATOM WEAPON — travels as heavy projectile, detonates on impact
         p, [ makeProjectile p ownerIdx p.WeaponType ]
 
     // | WeaponType.Troopers -> // TROOPERS — TODO: deploy ground units that shoot nearby opponents
@@ -202,14 +202,10 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
                         EType = EntityType.Mine; Owner = ownerIdx; Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->
-        // DIRTCLOD: lobbed with gravity
-        p, [ makeProjectile p ownerIdx sw ]
-
-    | WeaponType.Headspinner ->
-        // HEADSPINNER: EMP/stun shot
-        p, [ makeProjectile p ownerIdx sw ]
-
+    | WeaponType.Dirtclod
+    // DIRTCLOD: lobbed with gravity
+    | WeaponType.Headspinner
+    // HEADSPINNER: EMP/stun shot
     | WeaponType.Freezer ->
         // FREEZER: shield entity on target
         p, [ makeProjectile p ownerIdx sw ]
