@@ -20,15 +20,22 @@ let PageSize = MapWidth * 200  // 64000 bytes per VGA page
 /// Water is also penetrable but applies friction.
 /// Everything else is solid wall.
 /// Dark gray pixels are indestructible walls that cannot be erased by ammo.
+[<Literal>]
 let WaterColor = 0x27uy          // Water surface — penetrable, friction applies
 // Base / landing pad colour range — shaded grey bars (0x5C..0x5F), drawn as small
 // horizontal rectangles in the AUTS maps. Ships land here without taking collision
 // damage, recharge energy, and may switch weapons. Bases are also indestructible:
 // ammo cannot erase them. (Earlier code mislabelled this range as "indestructible
 // walls" and used 0x28 for bases — but real AUTS maps colour bases 0x5C..0x5F.)
-let BaseColorMin = 0x5Cuy        // Base/landing pad range low
-let BaseColorMax = 0x5Fuy        // Base/landing pad range high
-let VoidColor = 0x00uy           // Empty/sky — the only freely flyable space
+/// Base/landing pad range low
+[<Literal>]
+let BaseColorMin = 0x5Cuy
+/// Base/landing pad range high
+[<Literal>]
+let BaseColorMax = 0x5Fuy
+/// Empty/sky — the only freely flyable space
+[<Literal>]
+let VoidColor = 0x00uy
 
 // ─── Spawn Point ───────────────────────────────────────────────────────
 [<Struct>]

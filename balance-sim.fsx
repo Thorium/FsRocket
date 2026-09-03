@@ -27,7 +27,9 @@ let level =
     loadLevel candidate
 let pristine = Array.copy level.Pixels
 
-let duelTicks = 3600   // 100 s of game time per duel at 36 fps
+/// 100 s of game time per duel at 36 fps
+[<Literal>]
+let duelTicks = 3600
 
 /// Run one duel: P1 uses wA, P2 uses wB. Returns (killsA, deathsA, killsB, deathsB).
 let duel (wA: WeaponType) (wB: WeaponType) (seed: int) =
@@ -42,9 +44,10 @@ let duel (wA: WeaponType) (wB: WeaponType) (seed: int) =
     let pin (g: GameState) =
         { g with
             Players = g.Players |> List.mapi (fun i p ->
-                if i = 0 then { p with SpecialWeapon = wA }
-                elif i = 1 then { p with SpecialWeapon = wB }
-                else p) }
+                match i with
+                | 0 -> { p with SpecialWeapon = wA }
+                | 1 -> { p with SpecialWeapon = wB }
+                | _ -> p) }
     let mutable gs = initRound gs0 |> pin
     for _ in 1 .. duelTicks do
         gs <- gameTick gs |> pin

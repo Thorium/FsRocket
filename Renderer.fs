@@ -17,9 +17,11 @@ open FsRocket.Entities
 let inline rgba r g b a = Color(int r, int g, int b, int a)
 
 // ─── Scale factor (3× 320×200) ───────────────────────────
+[<Literal>]
 let Scale = 3
 
 /// Extra zoom factor for terrain bitmaps
+[<Literal>]
 let TerrainZoom = 1.25
 
 // ─── Color palette (MonoGame Color equivalents) ──────────────────
@@ -39,7 +41,8 @@ let playerDarkColors = [|
 
 let bgColor        = Color(0x00, 0x00, 0x00)
 let wallColor      = Color(0x40, 0x40, 0x50)
-let basePadColor   = Color(0x30, 0xC0, 0x60)   // Landing pad / base — distinct green bar
+/// Landing pad / base — distinct green bar
+let basePadColor   = Color(0x30, 0xC0, 0x60)
 let gridColor      = Color(0x18, 0x18, 0x24)
 let bulletColor    = Color(0xFF, 0xFF, 0x80)
 let mineColorVal   = Color(0xFF, 0x60, 0x20)
@@ -63,10 +66,10 @@ let private buildVgaPalette () : int array =
         let r, g, b = cga[i]
         pal[i] <- (0xFF <<< 24) ||| (r <<< 16) ||| (g <<< 8) ||| b
     for r in 0..5 do
+        let rv = r * 51
         for g in 0..5 do
             for b in 0..5 do
                 let idx = 16 + r * 36 + g * 6 + b
-                let rv = r * 51
                 let gv = g * 51
                 let bv = b * 51
                 pal[idx] <- (0xFF <<< 24) ||| (rv <<< 16) ||| (gv <<< 8) ||| bv
@@ -198,7 +201,7 @@ type RenderResources =
 /// Create a 1×1 white pixel texture
 let createPixelTexture (device: GraphicsDevice) =
     let tex = new Texture2D(device, 1, 1)
-    tex.SetData([| Color.White |])
+    tex.SetData [| Color.White |]
     tex
 
 /// Create a filled circle texture (diameter × diameter)
@@ -210,7 +213,7 @@ let createCircleFilledTexture (device: GraphicsDevice) (diameter: int) =
         let y = float (i / diameter) - r + 0.5
         if x * x + y * y <= r * r then Color.White else Color.Transparent
     )
-    tex.SetData(data)
+    tex.SetData data
     tex
 
 /// Create a circle outline texture (diameter × diameter)
@@ -223,7 +226,7 @@ let createCircleOutlineTexture (device: GraphicsDevice) (diameter: int) (thickne
         let dist = sqrt (x * x + y * y)
         if dist <= r && dist >= r - thickness then Color.White else Color.Transparent
     )
-    tex.SetData(data)
+    tex.SetData data
     tex
 
 /// Create the bitmap font atlas texture
@@ -244,15 +247,13 @@ let createFontTexture (device: GraphicsDevice) =
                     let px = ci * charW + col
                     let py = row
                     data[py * atlasW + px] <- Color.White
-    tex.SetData(data)
+    tex.SetData data
     tex
 
 // ─── Initialize render resources ──────────────────────────────────────
 
 let initRenderResources (device: GraphicsDevice) : RenderResources =
-    let basicEffect = new BasicEffect(device)
-    basicEffect.VertexColorEnabled <- true
-    basicEffect.TextureEnabled <- false
+    let basicEffect = new BasicEffect(device, VertexColorEnabled = true, TextureEnabled = false)
     { SpriteBatch = new SpriteBatch(device)
       Pixel = createPixelTexture device
       CircleFilled = createCircleFilledTexture device 64
@@ -504,10 +505,10 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
             drawLine sb res.Pixel swx (swy + swh) (swx + sww) (swy + swh) wallShadow 1.0f
 
     // Draw entities (bullets, mines, etc.)
+    let margin = 40 * Scale
     for ent in gs.Entities do
         let ex = toScreenX ent.X
         let ey = toScreenY ent.Y
-        let margin = 40 * Scale
         if ex > vx - margin && ex < vx + vw + margin && ey > vy - margin && ey < vy + gameH + margin then
             match ent.EType with
             | EntityType.Expanding ->
@@ -774,14 +775,14 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                     drawFilledCircle res.SpriteBatch res.CircleFilled fx fy Scale thrustColor
 
                 // Shield bubble
-                if other.Flags.HasFlag(PlayerFlags.Shield) then
+                if other.Flags.HasFlag PlayerFlags.Shield then
                     let sr = 7 * Scale
                     drawCircleOutline res.SpriteBatch res.CircleOutline ox oy sr shieldColor
 
                 // Magnofilter deflector field: pulsing teal QUARTER arc over
                 // the nose (±45° forward, tail open) — drawn as short line
                 // segments since there is no arc primitive here
-                if other.Flags.HasFlag(PlayerFlags.Magno) then
+                if other.Flags.HasFlag PlayerFlags.Magno then
                     let mPulse = sin (float gs.GameTick * 0.25)
                     let mR = float (9 * Scale) + mPulse * float Scale
                     let mAlpha = 110 + int (50.0 * mPulse)
@@ -796,7 +797,7 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                             (ox + int (cos a2 * mR)) (oy - int (sin a2 * mR)) mColor 2.0f
 
                 // Stun effect
-                if other.Flags.HasFlag(PlayerFlags.Stunned) then
+                if other.Flags.HasFlag PlayerFlags.Stunned then
                     for s in 0..2 do
                         let sRad = degToRad (other.AnimAngle + float s * 120.0)
                         let sx = ox + int (cos sRad * float (6 * Scale))
@@ -963,7 +964,9 @@ let drawBorder (sb: SpriteBatch) (pixel: Texture2D) (vx: int) (vy: int) (vw: int
 /// 960x600 backbuffer and zoomed up uniformly to fill the window, so a
 /// bigger window means bigger pixels — not more visible map (limited
 /// per-viewport visibility is part of the game design).
+[<Literal>]
 let designW = 960.0
+[<Literal>]
 let designH = 600.0
 
 /// Uniform zoom factor from the physical backbuffer size. One axis is
@@ -983,7 +986,7 @@ let zoomFor (physW: float) (physH: float) =
 /// polygons compose the same scale through the World matrix. At exactly
 /// 960x600 the zoom is 1.0 (identity transform, output unchanged).
 let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (windowW: int) (windowH: int) =
-    device.Clear(Color.Black)
+    device.Clear Color.Black
 
     // Guard against a zero-size window (e.g. minimized) which would make the
     // ortho matrix degenerate (division by zero -> infinities).

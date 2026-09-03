@@ -63,7 +63,7 @@ let cycleWeapon (gs: GameState) (playerIdx: int) (dir: int) : GameState =
         let p = gs.Players[playerIdx]
         // Default rule: during a live round the special weapon can only be changed
         // while the ship is parked on a base. Toggle off (F9) to allow it anywhere.
-        let allowed = not gs.WeaponSwitchOnlyOnBase || not gs.RoundActive || p.OnBase
+        let allowed = (not (gs.WeaponSwitchOnlyOnBase && gs.RoundActive)) || p.OnBase
         if not allowed then gs
         else
             let len = weapons.Length
@@ -94,7 +94,9 @@ type private PadInput =
       WeaponPrev: bool; WeaponNext: bool; Start: bool }
 
 /// Left-stick deadzone (fraction of full deflection) and trigger threshold.
+[<Literal>]
 let private stickDeadzone = 0.35f
+[<Literal>]
 let private triggerThreshold = 0.25f
 
 /// States of all connected pads, compacted in player-index order so pad slots
@@ -185,9 +187,8 @@ type FsRocketGame() as this =
             else
                 this.Exit()
 
-        if this.JustPressed Keys.Space currKeyState then
-            if not gs.RoundActive then
-                gs <- initRound gs
+        if this.JustPressed Keys.Space currKeyState && not gs.RoundActive then
+            gs <- initRound gs
 
         if this.JustPressed Keys.F11 currKeyState then
             graphics.IsFullScreen <- not graphics.IsFullScreen
@@ -258,7 +259,7 @@ type FsRocketGame() as this =
                 padPrev[i] <- (pad.WeaponPrev, pad.WeaponNext, pad.Start))
 
         // Map key states + held pad controls to player inputs
-        let has (k: Keys) = currKeyState.IsKeyDown(k)
+        let has (k: Keys) = currKeyState.IsKeyDown k
 
         let players =
             gs.Players |> List.mapi (fun i p ->
@@ -312,7 +313,7 @@ type FsRocketGame() as this =
             gs <- gameTick gs
 
         prevKeyState <- currKeyState
-        base.Update(gameTime)
+        base.Update gameTime
 
     override this.Draw(gameTime) =
         let windowW = this.GraphicsDevice.Viewport.Width
@@ -323,7 +324,7 @@ type FsRocketGame() as this =
         if gs.TerrainDirty then
             gs <- { gs with TerrainDirty = false }
 
-        base.Draw(gameTime)
+        base.Draw gameTime
 
 // ─── Entry Point ───────────────────────────────────────────────────────
 
