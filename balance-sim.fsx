@@ -10,6 +10,7 @@
 #load "Game.fs"
 
 open System
+open System.Collections.Generic
 open FsRocket.Physics
 open FsRocket.Terrain
 open FsRocket.Weapons
@@ -68,10 +69,10 @@ printfn "Weapons under test (%d): %s" specials.Length
 let sw = Diagnostics.Stopwatch.StartNew()
 
 // score[w] accumulates net kills for weapon w across all its duels
-let net = System.Collections.Generic.Dictionary<WeaponType, int>()
-let kills = System.Collections.Generic.Dictionary<WeaponType, int>()
-let deaths = System.Collections.Generic.Dictionary<WeaponType, int>()
-let games = System.Collections.Generic.Dictionary<WeaponType, int>()
+let net = Dictionary<WeaponType, int>()
+let kills = Dictionary<WeaponType, int>()
+let deaths = Dictionary<WeaponType, int>()
+let games = Dictionary<WeaponType, int>()
 for w in specials do net[w] <- 0; kills[w] <- 0; deaths[w] <- 0; games[w] <- 0
 
 let mutable pairIdx = 0
