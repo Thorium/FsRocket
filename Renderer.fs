@@ -282,7 +282,7 @@ let drawLine (sb: SpriteBatch) (pixel: Texture2D) (x1: int) (y1: int) (x2: int) 
     let dy = float32 (y2 - y1)
     let length = sqrt (dx * dx + dy * dy)
     let angle = atan2 dy dx
-    sb.Draw(pixel, Vector2(float32 x1, float32 y1), System.Nullable(), color, angle,
+    sb.Draw(pixel, Vector2(float32 x1, float32 y1), Nullable(), color, angle,
             Vector2.Zero, Vector2(length, thickness), SpriteEffects.None, 0.0f)
 
 let drawFilledTriangle (device: GraphicsDevice) (effect: BasicEffect)
@@ -321,7 +321,7 @@ let drawText (sb: SpriteBatch) (fontTex: Texture2D) (text: string) (x: int) (y: 
         let ci = int ch - 32
         if ci >= 0 && ci < 96 then
             let srcRect = Rectangle(ci * charW, 0, charW, charH)
-            sb.Draw(fontTex, Rectangle(cx, y, charW * scale, charH * scale), System.Nullable srcRect, color)
+            sb.Draw(fontTex, Rectangle(cx, y, charW * scale, charH * scale), Nullable srcRect, color)
         cx <- cx + charW * scale
 
 let measureText (text: string) (scale: int) =
@@ -353,7 +353,7 @@ let private paintTerrainRect (tex: Texture2D) (level: LevelData) (x0: int) (y0: 
                 else
                     let argb = vgaPalette[int pixel]
                     Color((argb >>> 16) &&& 0xFF, (argb >>> 8) &&& 0xFF, argb &&& 0xFF, (argb >>> 24) &&& 0xFF)
-    tex.SetData(0, System.Nullable(Rectangle(x0, y0, w, h)), data, 0, data.Length)
+    tex.SetData(0, Nullable(Rectangle(x0, y0, w, h)), data, 0, data.Length)
 
 /// Resolve the terrain texture for this frame — full rebuild on level change,
 /// dirty-rect patch while terrain is being carved, otherwise the cache as-is.
@@ -422,7 +422,7 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     let gameH = vh - hudH
     let p = gs.Players[playerIdx]
     let sb = res.SpriteBatch
-    let xform = System.Nullable(Matrix.CreateScale(float32 zoom, float32 zoom, 1.0f))
+    let xform = Nullable(Matrix.CreateScale(float32 zoom, float32 zoom, 1.0f))
 
     /// Logical rect -> physical scissor rect (ceil the far edge so no edge
     /// pixel is clipped away; exact identity at zoom = 1).
@@ -464,7 +464,7 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
             let destW = int (float srcW * effectiveScale)
             let destH = int (float srcH * effectiveScale)
             sb.Draw(tbmp, Rectangle(destX, destY, destW, destH),
-                    System.Nullable(Rectangle(srcX, srcY, srcW, srcH)), Color.White)
+                    Nullable(Rectangle(srcX, srcY, srcW, srcH)), Color.White)
     | None ->
         // No terrain: draw grid + hardcoded walls
         let startGX = int (floor (camX / 32.0)) * 32
@@ -844,7 +844,7 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
     match gs.Level with
     | Some _ ->
         sb.Draw(ttex, Rectangle(mmX, mmY, mmW, mmH),
-                System.Nullable(Rectangle(0, 0, MapWidth, MapHeight)), Color.White)
+                Nullable(Rectangle(0, 0, MapWidth, MapHeight)), Color.White)
     | None ->
         // Walls on minimap
         let mmWallColor = Color(0x60, 0x60, 0x80, 0x80)
