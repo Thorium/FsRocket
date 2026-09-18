@@ -173,6 +173,7 @@ let getWeapon (wt: WeaponType) =
     else weapons[0]
 
 /// Standard bullet damage (entity types $01/$06)
+[<Literal>]
 let bulletDamage = 5
 
 /// Heavy cannon damage formula: 6 - (timer / 4), minimum 1
@@ -182,25 +183,33 @@ let heavyDamage (timer: int) = max 1 (6 - timer / 4)
 let flameRadius (timer: int) = max 0 ((timer - 3) <<< 5)
 
 /// Ricochet max bounces before deactivation
+[<Literal>]
 let ricochetMaxBounces = 3
 
 /// Nuke blast radius in pixels (expands from 0 to this over lifetime)
+[<Literal>]
 let nukeBlastRadius = 80.0
 
 /// Blackhole gravity pull radius in pixels (~1536 internal / 32)
+[<Literal>]
 let blackholeRadius = 48.0
 
 /// Blackhole gravity strength
+[<Literal>]
 let blackholeStrength = 0.15
 
 /// Expanding entity (sonicboom) max radius
+[<Literal>]
 let expandingMaxRadius = 120.0
 
 /// Expanding entity growth rate per tick
+[<Literal>]
 let expandingGrowthRate = 3.0
 
 /// Laser beam length in pixels
+[<Literal>]
 let laserLength = 200.0
 
 /// Missile homing turn rate (degrees per tick)
+[<Literal>]
 let missileHomingRate = 4.0

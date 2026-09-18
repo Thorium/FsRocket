@@ -76,10 +76,10 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
                         Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->  // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
-        p, [ makeProjectile p ownerIdx p.WeaponType ]
-
-    | WeaponType.AtomWeapon -> // ATOM WEAPON — travels as heavy projectile, detonates on impact
+    | WeaponType.Dirtclod
+    // DIRTCLOD — lobbed with gravity (Exploding is Dirtclod's own EntityType)
+    | WeaponType.AtomWeapon ->
+        // ATOM WEAPON — travels as heavy projectile, detonates on impact
         p, [ makeProjectile p ownerIdx p.WeaponType ]
 
     // | WeaponType.Troopers -> // TROOPERS — TODO: deploy ground units that shoot nearby opponents
@@ -201,14 +201,10 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
                         EType = EntityType.Mine; Owner = ownerIdx; Timer = -25; WeaponIdx = WeaponType.Mine }
         p, [ ent ]
 
-    | WeaponType.Dirtclod ->
-        // DIRTCLOD: lobbed with gravity
-        p, [ makeProjectile p ownerIdx sw ]
-
-    | WeaponType.Headspinner ->
-        // HEADSPINNER: EMP/stun shot
-        p, [ makeProjectile p ownerIdx sw ]
-
+    | WeaponType.Dirtclod
+    // DIRTCLOD: lobbed with gravity
+    | WeaponType.Headspinner
+    // HEADSPINNER: EMP/stun shot
     | WeaponType.Freezer ->
         // FREEZER: shield entity on target
         p, [ makeProjectile p ownerIdx sw ]
@@ -818,7 +814,9 @@ let applyBlackholePull (entities: Entity list) (players: Player list) (numPlayer
 // ─── Magnofilter Pull Pass ─────────────────────────────────────────────
 // Players with Magno flag attract enemy projectiles toward themselves.
 
+[<Literal>]
 let magnofilterPullRadius = 60.0
+[<Literal>]
 let magnofilterStrength = 0.25
 
 let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: int) : Entity list =
@@ -896,14 +894,14 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             match ent.EType with
                             | EntityType.Bullet | EntityType.BulletAlt -> bulletDamage
                             | EntityType.Mine -> if ent.Timer > 0 then 30 else 0
-                            | EntityType.EMP -> 0
+                            | EntityType.EMP
                             | EntityType.Shield -> 0
                             | EntityType.Ricochet -> 3
-                            | EntityType.PassThrough -> 1
+                            | EntityType.PassThrough
                             | EntityType.Laser -> 1
                             | EntityType.Heavy -> heavyDamage ent.Timer
                             | EntityType.Flame -> 1
-                            | EntityType.Nuke -> 15
+                            | EntityType.Nuke
                             | EntityType.Railgun -> 15
                             | EntityType.Shrapnel -> 1
                             | EntityType.Expanding -> 10

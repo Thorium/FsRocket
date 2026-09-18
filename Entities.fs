@@ -11,7 +11,8 @@ open FsRocket.Types
 
 // ─── Factory Functions ─────────────────────────────────────────────────
 
-let playerColors = [| 0x1F; 0x28; 0x30; 0x38 |]  // Blue, Green, Red, Yellow-ish
+/// Blue, Green, Red, Yellow-ish
+let playerColors = [| 0x1F; 0x28; 0x30; 0x38 |]
 
 let createPlayer (index: int) : Player =
     { PosX = 0.0; PosY = 0.0; Angle = SpawnDirection

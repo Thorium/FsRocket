@@ -44,7 +44,8 @@ let vgaPalette = buildVgaPalette ()
 let VoidMat  : byte = VoidColor        // 0x00
 let WaterMat : byte = WaterColor       // 0x27
 let BaseMat  : byte = BaseColorMin     // 0x5C
-let WallMat  : byte = 0x82uy           // rock-brown (6x6x6 cube r=3,g=1,b=0)
+/// rock-brown (6x6x6 cube r=3,g=1,b=0)
+let WallMat  : byte = 0x82uy
 
 /// Fixed display colour for landing pads, matching the game's renderer so pads
 /// are easy to spot while editing.
@@ -114,13 +115,17 @@ let inline private dist2 (r1, g1, b1) (r2, g2, b2) =
 // "Key" RGB colours used by the colour-preserving import mode. They match what
 // the editor draws on screen, so painting a level with exactly these colours in
 // any image editor and importing it yields a directly playable map.
-let KeyVoidRgb  = (0x00, 0x00, 0x00)   // black  #000000  → empty / caves
-let KeyWaterRgb = (0x00, 0x99, 0xFF)   // blue   #0099FF  → water  (palette 0x27 on screen)
-let KeyBaseRgb  = (0x30, 0xC0, 0x60)   // green  #30C060  → landing pad / base
+/// black  #000000  → empty / caves
+let KeyVoidRgb  = (0x00, 0x00, 0x00)
+/// blue   #0099FF  → water  (palette 0x27 on screen)
+let KeyWaterRgb = (0x00, 0x99, 0xFF)
+/// green  #30C060  → landing pad / base
+let KeyBaseRgb  = (0x30, 0xC0, 0x60)
 
 /// Default per-channel tolerance for key-colour matching. Strict by default so an
 /// imported, hand-painted level only snaps colours that are genuinely meant to be
 /// void/water/base; raise it to absorb JPEG noise, lower it for exact matches only.
+[<Literal>]
 let DefaultKeyTolerance = 24
 
 /// Colour-preserving classification: snap a pixel to Void/Water/Base when it is
@@ -141,9 +146,12 @@ let classifyByColor (perChannelTol: int) (r: int) (g: int) (b: int) : byte =
 // ─── Image import ──────────────────────────────────────────────────────────
 
 type FitMode =
-    | Stretch   // distort to exactly fill 320x400
-    | Fit       // preserve aspect ratio, letterbox the remainder with void
-    | Center    // native pixel size, centred; crop overflow, void-pad underflow
+    /// distort to exactly fill 320x400
+    | Stretch
+    /// preserve aspect ratio, letterbox the remainder with void
+    | Fit
+    /// native pixel size, centred; crop overflow, void-pad underflow
+    | Center
 
 type ColorMode =
     /// Everything becomes solid wall (reserved colours are avoided). Best for

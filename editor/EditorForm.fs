@@ -5,6 +5,7 @@
 module FsRocketEditor.EditorForm
 
 open System
+open System.Collections.Generic
 open System.Drawing
 open System.Drawing.Imaging
 open System.Runtime.InteropServices
@@ -26,6 +27,7 @@ type private CanvasPanel() =
 
 // ─── Color-guide / help text (also the "instructions" requested) ───────────
 
+[<Literal>]
 let private colorGuideText =
     "TERRAIN COLOURS — what each pixel MEANS to the game\n\
      ───────────────────────────────────────────────\n\
@@ -54,6 +56,7 @@ let private colorGuideText =
          anything else   = solid wall (its colour is preserved)\n\
        Remember a base needs empty void just above it to become a spawn point."
 
+[<Literal>]
 let private controlsText =
     "TOOLS         B Brush   F Fill   L Line   R Rectangle\n\
      MATERIALS     1 Void    2 Wall   3 Water  4 Base\n\
@@ -170,8 +173,8 @@ type EditorForm() as this =
     let mutable dragCur = (0, 0)
 
     // ── Undo / redo (bounded snapshot stacks) ──
-    let undoList = System.Collections.Generic.List<byte array>()
-    let redoList = System.Collections.Generic.List<byte array>()
+    let undoList = List<byte array>()
+    let redoList = List<byte array>()
     let undoLimit = 40
 
     // ── Render cache ──
@@ -190,8 +193,8 @@ type EditorForm() as this =
     let menuStrip = new MenuStrip()
 
     // Tool / material buttons kept for radio-style check management.
-    let toolButtons = System.Collections.Generic.Dictionary<Tool, ToolStripButton>()
-    let matButtons = System.Collections.Generic.Dictionary<Material, ToolStripButton>()
+    let toolButtons = Dictionary<Tool, ToolStripButton>()
+    let matButtons = Dictionary<Material, ToolStripButton>()
     let sizeCombo = new ToolStripComboBox()
     let zoomLabel = new ToolStripLabel(Text = "Zoom 2x")
     let spawnBtn = new ToolStripButton("Show spawns (G)", CheckOnClick = true)
@@ -284,7 +287,7 @@ type EditorForm() as this =
         let nz = max 1 (min 8 z)
         if nz <> zoom then
             zoom <- nz
-            zoomLabel.Text <- sprintf "Zoom %dx" zoom
+            zoomLabel.Text <- $"Zoom %d{zoom}x"
             resizeCanvas ()
 
     // ── Pixel coordinate from a mouse event on the canvas ──
@@ -390,7 +393,7 @@ type EditorForm() as this =
                 else
                     let proceed =
                         not (IO.File.Exists dest)
-                        || MessageBox.Show(sprintf "%s already exists in the game folder. Overwrite?" fileName,
+                        || MessageBox.Show($"%s{fileName} already exists in the game folder. Overwrite?",
                                            "Publish to game", MessageBoxButtons.YesNo,
                                            MessageBoxIcon.Warning) = DialogResult.Yes
                     if proceed then
@@ -414,16 +417,17 @@ type EditorForm() as this =
         b :> Image
 
     let addToolButton (t: Tool) (text: string) =
-        let b = new ToolStripButton(text, null, (fun _ _ -> selectTool t))
-        b.CheckOnClick <- false
+        let b = new ToolStripButton(text, null, (fun _ _ -> selectTool t), CheckOnClick = false)
         toolButtons[t] <- b
         toolStrip.Items.Add b |> ignore
 
     let addMatButton (m: Material) (text: string) (argb: int) =
-        let b = new ToolStripButton(text, makeSwatch argb, (fun _ _ -> selectMaterial m))
-        b.CheckOnClick <- false
-        b.ImageAlign <- ContentAlignment.MiddleLeft
-        b.TextImageRelation <- TextImageRelation.ImageBeforeText
+        let b =
+            new ToolStripButton(text, makeSwatch argb, (fun _ _ -> selectMaterial m),
+                CheckOnClick = false,
+                ImageAlign = ContentAlignment.MiddleLeft,
+                TextImageRelation = TextImageRelation.ImageBeforeText
+            )
         matButtons[m] <- b
         toolStrip.Items.Add b |> ignore
 
@@ -459,7 +463,7 @@ type EditorForm() as this =
             mi "&Controls" Keys.None
                (fun () -> MessageBox.Show(controlsText, "Controls", MessageBoxButtons.OK, MessageBoxIcon.Information) |> ignore)
         |])
-        menuStrip.Items.AddRange([| fileMenu :> ToolStripItem; editMenu :> ToolStripItem; helpMenu :> ToolStripItem |])
+        menuStrip.Items.AddRange [| fileMenu :> ToolStripItem; editMenu :> ToolStripItem; helpMenu :> ToolStripItem |]
 
         // ── Tool strip ──
         addToolButton Brush "Brush (B)"
@@ -474,7 +478,7 @@ type EditorForm() as this =
         toolStrip.Items.Add(new ToolStripSeparator()) |> ignore
         toolStrip.Items.Add(new ToolStripLabel("Size")) |> ignore
         sizeCombo.DropDownStyle <- ComboBoxStyle.DropDownList
-        sizeCombo.Items.AddRange([| "1"; "3"; "5"; "7"; "9"; "15"; "25" |])
+        sizeCombo.Items.AddRange [| "1"; "3"; "5"; "7"; "9"; "15"; "25" |]
         sizeCombo.SelectedIndex <- 1   // diameter 3 -> radius 1
         sizeCombo.Width <- 50
         sizeCombo.SelectedIndexChanged.Add(fun _ ->
@@ -493,14 +497,14 @@ type EditorForm() as this =
         toolStrip.Items.Add spawnBtn |> ignore
 
         // ── Status strip ──
-        statusStrip.Items.AddRange([| coordLabel :> ToolStripItem; infoLabel :> ToolStripItem |])
+        statusStrip.Items.AddRange [| coordLabel :> ToolStripItem; infoLabel :> ToolStripItem |]
 
         // ── Canvas ──
         canvas.Size <- Size(MapWidth * zoom, MapHeight * zoom)
-        canvas.Paint.Add(this.OnCanvasPaint)
-        canvas.MouseDown.Add(this.OnCanvasMouseDown)
-        canvas.MouseMove.Add(this.OnCanvasMouseMove)
-        canvas.MouseUp.Add(this.OnCanvasMouseUp)
+        canvas.Paint.Add this.OnCanvasPaint
+        canvas.MouseDown.Add this.OnCanvasMouseDown
+        canvas.MouseMove.Add this.OnCanvasMouseMove
+        canvas.MouseUp.Add this.OnCanvasMouseUp
         canvas.MouseLeave.Add(fun _ -> coordLabel.Text <- "x: -  y: -")
         scroller.Controls.Add canvas
 
@@ -556,7 +560,7 @@ type EditorForm() as this =
                 let lx, hx = min sx cx, max sx cx
                 let ly, hy = min sy cy, max sy cy
                 g.DrawRectangle(pen, lx * zoom, ly * zoom, (hx - lx + 1) * zoom, (hy - ly + 1) * zoom)
-            | _ -> ()
+            | Brush | Fill -> ()
 
     member private _.OnCanvasMouseDown(e: MouseEventArgs) =
         if e.Button = MouseButtons.Left || e.Button = MouseButtons.Right then
@@ -580,7 +584,7 @@ type EditorForm() as this =
 
     member private _.OnCanvasMouseMove(e: MouseEventArgs) =
         let (px, py) = toPixel e
-        coordLabel.Text <- sprintf "x: %d  y: %d" px py
+        coordLabel.Text <- $"x: %d{px}  y: %d{py}"
         if painting then
             match tool with
             | Brush ->
@@ -604,7 +608,7 @@ type EditorForm() as this =
             | Rect ->
                 pushUndo ()
                 drawRect pixels sx sy px py strokeValue
-            | _ -> ()
+            | Brush | Fill -> ()
             painting <- false
             refreshCanvas ()
 
@@ -663,7 +667,7 @@ let private cliUsage () =
 let convertImageToLev (input: string) (output: string) (fitArg: string)
                       (colorArg: string) (thresholdArg: string) : int =
     if not (IO.File.Exists input) then
-        Console.Error.WriteLine(sprintf "Input image not found: %s" input)
+        Console.Error.WriteLine($"Input image not found: %s{input}")
         2
     else
         let fit =
@@ -671,12 +675,12 @@ let convertImageToLev (input: string) (output: string) (fitArg: string)
             | "fit" -> Fit
             | "center" | "centre" -> Center
             | "stretch" | "" -> Stretch
-            | other -> Console.WriteLine(sprintf "Unknown fit '%s', using stretch." other); Stretch
+            | other -> Console.WriteLine($"Unknown fit '%s{other}', using stretch."); Stretch
         let colors =
             match colorArg.ToLowerInvariant() with
             | "keep" | "preserve" | "colours" | "colors" -> PreserveColors
             | "solid" | "walls" | "" -> SolidWalls
-            | other -> Console.WriteLine(sprintf "Unknown colours mode '%s', using solid." other); SolidWalls
+            | other -> Console.WriteLine($"Unknown colours mode '%s{other}', using solid."); SolidWalls
         let threshold =
             match Int32.TryParse thresholdArg with
             | true, v -> v
