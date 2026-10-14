@@ -1038,7 +1038,7 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
         let cx = windowW / 2 - 200
         let mutable y = windowH / 2 - 80
 
-        drawText res.SpriteBatch res.FontTexture "FsRocket Physics" cx y Color.White 3
+        drawText res.SpriteBatch res.FontTexture "FsRocket" cx y Color.White 3
         y <- y + 30
 
         let levelName = match gs.Level with Some lv -> lv.Name | None -> "No Terrain"

@@ -137,24 +137,25 @@ type FsRocketGame() as this =
 
     let applyPlayerCount () =
         let total = totalPlayers ()
-        gs <- { gs with NumPlayers = total; CpuCount = cpuCount; RoundActive = false }
+        gs <- placeForMenu { gs with NumPlayers = total; CpuCount = cpuCount; RoundActive = false }
 
     let switchLevel (delta: int) =
         let total = levelFiles.Length + 1
         levelIdx <- ((levelIdx + delta) % total + total) % total
-        gs <-
+        let next =
             if levelIdx < levelFiles.Length then
                 match tryLoadLevel gs levelFiles[levelIdx] with
                 | Some newGs -> { newGs with RoundActive = false }
                 | None -> { gs with RoundActive = false; LevelFilePath = "" }
             else
                 { gs with Level = None; RoundActive = false; LevelFilePath = "" }
+        gs <- placeForMenu next
 
     do
         // Window settings
         graphics.PreferredBackBufferWidth <- 960
         graphics.PreferredBackBufferHeight <- 600
-        this.Window.Title <- "FsRocket Physics"
+        this.Window.Title <- "FsRocket"
         this.Window.AllowUserResizing <- true
         this.IsMouseVisible <- true
 
@@ -168,6 +169,7 @@ type FsRocketGame() as this =
             match tryLoadLevel gs levelFiles[0] with
             | Some newGs -> gs <- newGs
             | None -> ()
+        gs <- placeForMenu gs
         base.Initialize()
 
     override this.LoadContent() =
