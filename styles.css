@@ -232,7 +232,7 @@ body.touch.playing #touch-controls {
     border-color: #90c0ff;
 }
 
-.tc-quit {
+.tc-quit, .tc-pause {
     position: absolute;
     left: calc(12px + env(safe-area-inset-left));
     top: 10px;
@@ -240,6 +240,15 @@ body.touch.playing #touch-controls {
     height: 36px;
     font-size: 12px;
     border-radius: 8px;
+}
+
+.tc-pause {
+    left: calc(84px + env(safe-area-inset-left));
+}
+
+body.paused .tc-pause {
+    color: #ffff80;
+    border-color: #ffff80;
 }
 
 /* Each human's control set fills the screen (1 player) or its own half of
@@ -350,11 +359,24 @@ body.two-players .tc-player .tc.down {
     position: fixed;
     inset: 0;
     z-index: 10;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 12px;
     padding: 24px;
     text-align: center;
     font-size: 20px;
     color: #fff;
     background: #0a0a12;
+}
+
+/* A round running when the device turned is auto-paused (Program.fs) */
+.rotate-paused {
+    display: none;
+    font-size: 16px;
+    color: #ffff80;
+}
+
+body.playing.paused .rotate-paused {
+    display: block;
 }

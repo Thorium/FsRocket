@@ -64,6 +64,7 @@
 
 <div id="touch-controls">
     <button class="tc tc-quit" data-action="Escape" type="button" aria-label="Quit the round, back to menu">QUIT</button>
+    <button class="tc tc-pause" data-action="pause" type="button" aria-label="Pause or resume the round">PAUSE</button>
     <!-- One control set per human; P2's set (arrows / RShift / 8-9 keys) and the
          split layout only show with body.two-players -->
     <div class="tc-player tc-p1">
@@ -98,7 +99,10 @@
     </div>
 </div>
 
-<div id="rotate-hint">Turn your device sideways to play</div>
+<div id="rotate-hint">
+    Turn your device sideways to play
+    <span class="rotate-paused">Game paused</span>
+</div>
 <script src="./Program.fs.js" type="module"></script>
 </body>
 </html>

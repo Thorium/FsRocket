@@ -186,6 +186,14 @@ let private drawText ctx (s: string) x y font color =
     setFill ctx color
     fillTextJs ctx s x y
 
+[<Emit("$0.measureText($1).width")>]
+let private measureTextJs (ctx: obj) (s: string) : float = jsNative
+
+/// Draw `s` horizontally centred on `cx`.
+let private drawTextCentered ctx (s: string) cx y font color =
+    setFontJs ctx font
+    drawText ctx s (cx - measureTextJs ctx s / 2.0) y font color
+
 let private clipRect ctx x y w h =
     save ctx
     beginPath ctx
@@ -587,8 +595,8 @@ let drawBorder (ctx: obj) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
 // ─── Render full frame ─────────────────────────────────────────────────
 /// `views` is how many players get a viewport (players 0..views-1); `textMenu`
 /// draws the keyboard help over the dimmed menu backdrop (the touch layout has
-/// its own HTML menu instead).
-let renderFrame (ctx: obj) (gs: GameState) (views: int) (textMenu: bool) (windowW: int) (windowH: int) =
+/// its own HTML menu instead); `paused` dims a live round with a PAUSED banner.
+let renderFrame (ctx: obj) (gs: GameState) (views: int) (textMenu: bool) (paused: bool) (windowW: int) (windowH: int) =
     setSmoothing ctx false
     setBaseline ctx "top"
     fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
@@ -607,6 +615,12 @@ let renderFrame (ctx: obj) (gs: GameState) (views: int) (textMenu: bool) (window
             let (vx, vy, vw, vh) = layouts[i]
             drawPlayerView ctx gs tcanvas i vx vy vw vh
             drawBorder ctx vx vy vw vh i
+
+    if gs.RoundActive && paused then
+        let cx, cy = float windowW / 2.0, float windowH / 2.0
+        fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 140)
+        drawTextCentered ctx "PAUSED" cx (cy - 24.0) titleFont "rgb(255,255,128)"
+        drawTextCentered ctx "Tap PAUSE to continue" cx (cy + 12.0) subFont "rgb(192,192,192)"
 
     if not gs.RoundActive then
         fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 192)

@@ -87,6 +87,10 @@ let private assetUrl (file: string) =
 let private registerServiceWorker (url: string) : unit = jsNative
 [<Emit("window.matchMedia && window.matchMedia('(pointer: coarse)').matches")>]
 let private coarsePointer () : bool = jsNative
+/// Portrait orientation, when the touch layout covers the game with the
+/// "turn your device sideways" message.
+[<Emit("window.matchMedia('(orientation: portrait)').matches")>]
+let private isPortrait () : bool = jsNative
 [<Emit("new URLSearchParams(window.location.search).get($0)")>]
 let private queryParam (name: string) : string = jsNative
 
@@ -156,6 +160,9 @@ let private resizeCanvas () =
 let mutable private gs = createGameState 2
 let mutable private humanCount = if touchMode then 1 else 2
 let mutable private cpuCount = if touchMode then 1 else 0
+/// A live round frozen by the touch PAUSE button or by turning the device to
+/// portrait; cleared when a round starts or ends.
+let mutable private paused = false
 let private keys = System.Collections.Generic.HashSet<string>()
 
 /// A level that has been loaded into the rotation, with a pristine copy of its
@@ -355,8 +362,13 @@ let private mapInputs () =
 let private keyAction (code: string) =
     needsRender <- true   // menu toggles/level switches change state between steps
     match code with
-    | "Escape" -> if gs.RoundActive then gs <- { gs with RoundActive = false }
+    | "Escape" ->
+        paused <- false
+        if gs.RoundActive then gs <- { gs with RoundActive = false }
+    // Touch PAUSE button (no keyboard key produces this code)
+    | "pause" when gs.RoundActive -> paused <- not paused
     | "Space" ->
+        paused <- false
         if not gs.RoundActive then
             resetActiveTerrain ()   // reset ammo damage before the round
             gs <- initRound gs
@@ -486,6 +498,7 @@ let private syncTouchUi () =
         shownPlaying <- gs.RoundActive
         setClass (body ()) "playing" gs.RoundActive
         if not gs.RoundActive then releaseAllTouches ()
+    setClass (body ()) "paused" (gs.RoundActive && paused)
     if not gs.RoundActive then
         setText menuLevel (match gs.Level with Some lv -> lv.Name | None -> "No terrain")
         setText menuCpu (string cpuCount)
@@ -500,7 +513,7 @@ let private onTap (e: obj) =
     let button = closest (evTarget e) "[data-action]"
     if not (isNull button) then
         let code = attr button "data-action"
-        if code = "Escape" then releaseAllTouches ()
+        if code = "Escape" || code = "pause" then releaseAllTouches ()
         keyAction code
         if code = "Space" then enterFullscreenLandscape ()
         syncTouchUi ()   // labels now, not on the next animation frame
@@ -516,16 +529,22 @@ let rec private loop (ts: float) =
     let dt = if lastTime = 0.0 then frameMs else ts - lastTime
     lastTime <- ts
     acc <- acc + min dt 200.0   // clamp to avoid spiral-of-death after a stall
+    // Touch layout in portrait: the rotate message hides the game, so pause a
+    // live round; it stays paused after rotating back until PAUSE is tapped
+    if touchMode && gs.RoundActive && not paused && isPortrait () then
+        paused <- true
+        releaseAllTouches ()
+        needsRender <- true
     while acc >= frameMs do
         pollPadButtons ()
         mapInputs ()
-        if gs.RoundActive then gs <- gameTick gs
+        if gs.RoundActive && not paused then gs <- gameTick gs
         acc <- acc - frameMs
         needsRender <- true
     if needsRender then
         // Touch layout: viewports only for the humans, not the CPU ships
         let views = if touchMode then humanCount else gs.NumPlayers
-        renderFrame ctx gs views (not touchMode) viewW viewH
+        renderFrame ctx gs views (not touchMode) paused viewW viewH
         if touchMode then syncTouchUi ()
         if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
         needsRender <- false
