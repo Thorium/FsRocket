@@ -749,7 +749,7 @@ let renderFrame (g: Graphics) (gs: GameState) (windowW: int) (windowH: int) =
         use cyan = new SolidBrush(Color.FromArgb(0x90, 0xC0, 0xFF))
         let cx = float32 (windowW / 2 - 200)
         let mutable y = float32 (windowH / 2 - 80)
-        g.DrawString("FsRocket Physics", titleFont, white, cx, y)
+        g.DrawString("FsRocket", titleFont, white, cx, y)
         y <- y + 30.0f
         let levelName = match gs.Level with Some lv -> lv.Name | None -> "No Terrain"
         let cpuText = if gs.CpuCount > 0 then $"  |  CPU: {gs.CpuCount}" else ""

@@ -190,20 +190,21 @@ type GameForm() as this =
 
     let applyPlayerCount () =
         let total = totalPlayers ()
-        gs <- { gs with NumPlayers = total; CpuCount = cpuCount; RoundActive = false }
+        gs <- placeForMenu { gs with NumPlayers = total; CpuCount = cpuCount; RoundActive = false }
 
     let switchLevel (delta: int) =
         // Cycle through: levelFiles[0], levelFiles[1], ..., (no terrain)
         // Total slots = levelFiles.Length + 1; last slot = no terrain
         let total = levelFiles.Length + 1
         levelIdx <- ((levelIdx + delta) % total + total) % total
-        gs <-
+        let next =
             if levelIdx < levelFiles.Length then
                 match tryLoadLevel gs levelFiles[levelIdx] with
                 | Some newGs -> { newGs with RoundActive = false }
                 | None -> { gs with RoundActive = false; LevelFilePath = "" }
             else
                 { gs with Level = None; RoundActive = false; LevelFilePath = "" }
+        gs <- placeForMenu next
 
     let toggleFullscreen () =
         if not isFullscreen then
@@ -223,8 +224,9 @@ type GameForm() as this =
             match tryLoadLevel gs levelFiles[0] with
             | Some newGs -> gs <- newGs
             | None -> ()
+        gs <- placeForMenu gs
 
-        this.Text <- "FsRocket Physics"
+        this.Text <- "FsRocket"
         this.ClientSize <- Size(960, 600)
         this.DoubleBuffered <- true
         this.SetStyle(ControlStyles.AllPaintingInWmPaint ||| ControlStyles.UserPaint

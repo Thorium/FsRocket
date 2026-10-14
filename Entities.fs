@@ -91,6 +91,26 @@ let spawnPlayerExcluding (rng: Random) (level: LevelData option) (occupied: int 
     let sx, sy, idx = pickSpawnPos rng level (fun sps -> randomSpawnExcluding sps rng occupied)
     placeAtSpawn sx sy idx p
 
+/// Park every player for the menu backdrop: player i on base i (wrapping when
+/// there are more players than bases), or at the map centre when the level has
+/// no bases, so each viewport behind the menu shows that player's corner of the
+/// map. Round start still spawns onto random free bases.
+let placeForMenu (gs: GameState) : GameState =
+    let menuPos i =
+        match gs.Level with
+        | Some lv when lv.SpawnPoints.Length > 0 ->
+            let sp = lv.SpawnPoints[i % lv.SpawnPoints.Length]
+            sp.X + sp.Width / 2, sp.Y
+        | _ -> MapWidth / 2, MapHeight / 2
+    let players =
+        gs.Players
+        |> List.mapi (fun i p ->
+            let sx, sy = menuPos i
+            { p with
+                PosX = float sx * PositionScale; PosY = float sy * PositionScale
+                VelX = 0.0; VelY = 0.0; Angle = SpawnDirection })
+    { gs with Players = players }
+
 // ─── Spawn a bullet/projectile — returns new entity to add ─────────────
 
 let makeProjectile (p: Player) (owner: int) (weaponIdx: WeaponType) : Entity =
