@@ -145,13 +145,13 @@ let mutable private hasUserLevels = false
 
 let private totalPlayers () = min 4 (humanCount + cpuCount)
 let private applyPlayerCount () =
-    gs <- { gs with NumPlayers = totalPlayers (); CpuCount = cpuCount; RoundActive = false }
+    gs <- placeForMenu { gs with NumPlayers = totalPlayers (); CpuCount = cpuCount; RoundActive = false }
 
 let private activate (i: int) =
     if i >= 0 && i < levels.Count then
         current <- i
         markAllDirty ()   // wholesale pixel change — repaint the terrain bitmap
-        gs <- { gs with Level = Some levels[i].Data; LevelFilePath = levels[i].Data.Name; RoundActive = false; TerrainDirty = true }
+        gs <- placeForMenu { gs with Level = Some levels[i].Data; LevelFilePath = levels[i].Data.Name; RoundActive = false; TerrainDirty = true }
         needsRender <- true
 
 /// Add a level to the rotation and make it active. The first uploaded level
