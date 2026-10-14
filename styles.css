@@ -232,6 +232,27 @@ body.touch.playing #touch-controls {
     border-color: #90c0ff;
 }
 
+/* SPECIAL while it can't fire (reloading, stunned, ship down): dimmed, with
+   the reload progress (--charge, 0..1, set by Program.fs) filling it from the
+   bottom. Holding it still fires the moment the reload is done. */
+.tc.unavailable {
+    color: rgba(255, 255, 255, 0.4);
+    border-color: rgba(255, 255, 255, 0.18);
+    background: linear-gradient(to top,
+        rgba(144, 192, 255, 0.3) calc(var(--charge, 0) * 100%),
+        rgba(255, 255, 255, 0.03) calc(var(--charge, 0) * 100%));
+}
+
+.tc.unavailable.down {
+    border-color: #90c0ff;
+}
+
+/* A player whose ship is down: their controls do nothing until it respawns
+   (or for the rest of the round with respawn off) */
+.tc-player.dead {
+    opacity: 0.3;
+}
+
 .tc-quit, .tc-pause {
     position: absolute;
     left: calc(12px + env(safe-area-inset-left));
@@ -379,4 +400,69 @@ body.two-players .tc-player .tc.down {
 
 body.playing.paused .rotate-paused {
     display: block;
+}
+
+/* Install as app, on the rotate screen (portrait has room and the game is
+   stopped anyway): a button where the browser offers an install prompt
+   (body.can-install), the Add to Home Screen steps on an iPhone browser tab
+   (body.iphone-tab), whose Safari has no fullscreen for pages. Both set by
+   Program.fs; neither shows once the game runs as an installed app. */
+.rotate-install, .rotate-ios {
+    display: none;
+    margin-top: 12px;
+}
+
+.rotate-install {
+    min-height: 44px;
+    padding: 0 20px;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: bold;
+    color: #0a0a12;
+    background: #90c0ff;
+    border: none;
+    border-radius: 8px;
+}
+
+.rotate-ios {
+    max-width: 22em;
+    font-size: 15px;
+    line-height: 1.4;
+    color: #c8c8d0;
+}
+
+.rotate-ios b {
+    color: #90c0ff;
+}
+
+body.can-install .rotate-install, body.iphone-tab .rotate-ios {
+    display: block;
+}
+
+/* The menu scrolls itself when it is taller than the screen (the page can't:
+   body has touch-action: none) */
+#touch-menu {
+    touch-action: pan-y;
+}
+
+/* Short landscape screens, e.g. an iPhone with Safari's bars showing */
+@media (max-height: 420px) {
+    #touch-menu {
+        gap: 4px;
+        padding: 6px 12px 8px;
+    }
+
+    #touch-menu h1 {
+        font-size: 16px;
+    }
+
+    #touch-menu button {
+        min-height: 32px;
+        font-size: 14px;
+    }
+
+    #touch-menu .tm-start {
+        min-height: 38px;
+        font-size: 16px;
+    }
 }

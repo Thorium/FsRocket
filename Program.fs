@@ -436,11 +436,30 @@ let private clientX (e: obj) : float = jsNative
 let private clientY (e: obj) : float = jsNative
 [<Emit("document.activeElement && document.activeElement.blur && document.activeElement.blur()")>]
 let private blurActive () : unit = jsNative
-/// Fullscreen + landscape lock where the browser allows it (Android); a no-op
-/// elsewhere (iOS Safari has neither for pages). Must run inside a tap handler.
+/// Fullscreen + landscape lock where the browser allows it (Android, iPad —
+/// older iPads only have the webkit-prefixed call); a no-op on iPhone, whose
+/// Safari has no fullscreen for pages. Must run inside a tap handler.
 /// Never throws: older browsers return no promise from requestFullscreen.
-[<Emit("(function(){ try { var d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) { Promise.resolve(d.requestFullscreen()).then(function(){ if (screen.orientation && screen.orientation.lock) return screen.orientation.lock('landscape'); }).catch(function(){}); } } catch (e) {} })()")>]
+[<Emit("(function(){ try { var d = document.documentElement; var req = d.requestFullscreen || d.webkitRequestFullscreen; if (!(document.fullscreenElement || document.webkitFullscreenElement) && req) { Promise.resolve(req.call(d)).then(function(){ if (screen.orientation && screen.orientation.lock) return screen.orientation.lock('landscape'); }).catch(function(){}); } } catch (e) {} })()")>]
 let private enterFullscreenLandscape () : unit = jsNative
+/// An iPhone running the game in a browser tab rather than from the Home
+/// Screen: the browser bars stay, and only Add to Home Screen gives the game
+/// the full screen.
+[<Emit("/iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone && !(window.matchMedia && window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches)")>]
+let private iPhoneBrowserTab () : bool = jsNative
+[<Emit("$0.prompt()")>]
+let private showInstallPrompt (prompt: obj) : unit = jsNative
+
+/// The browser's install prompt (Android / desktop Chrome, Edge), captured on
+/// `beforeinstallprompt` and shown by the rotate screen's Install as app button.
+let mutable private installPrompt: obj = null
+
+/// Show the install prompt (from a tap); a prompt can be shown only once.
+let private promptInstall () =
+    if not (isNull installPrompt) then
+        showInstallPrompt installPrompt
+        installPrompt <- null
+        setClass (body ()) "can-install" false
 
 /// Finger → data-key button it is holding.
 let private touchHeld = System.Collections.Generic.Dictionary<int, obj>()
@@ -469,6 +488,22 @@ let private releaseAllTouches () =
         keys.Remove(attr el "data-key") |> ignore
     touchHeld.Clear()
 
+/// Release the buttons held in one player's control set (the others stay).
+let private releaseTouchesIn (playerSet: obj) =
+    for KeyValue(id, el) in Seq.toArray touchHeld do
+        if sameEl (closest el ".tc-player") playerSet then
+            touchHeld.Remove id |> ignore
+            releaseButton el
+
+[<Emit("$0.touches.length")>]
+let private touchCount (e: obj) : int = jsNative
+[<Emit("document.hidden")>]
+let private pageHidden () : bool = jsNative
+[<Emit("$0.style.setProperty($1, $2)")>]
+let private setStyleVar (el: obj) (name: string) (value: string) : unit = jsNative
+[<Emit("document.querySelector($0)")>]
+let private queryDoc (selector: string) : obj = jsNative
+
 let private onPointerDown (e: obj) =
     let button = closest (evTarget e) "[data-key]"
     if not (isNull button) then
@@ -482,6 +517,29 @@ let private onPointerMove (e: obj) =
 
 let private onPointerUp (e: obj) =
     holdButton (pointerId e) null
+
+/// Per human player (P1, P2): their control set and SPECIAL button, and
+/// whether their ship was alive at the last sync (to catch the moment it dies).
+let private playerSets = [| queryDoc ".tc-p1"; queryDoc ".tc-p2" |]
+let private specialButtons = [| queryDoc ".tc-p1 [data-key=KeyS]"; queryDoc ".tc-p2 [data-key=ArrowDown]" |]
+let private wasAlive = [| true; true |]
+
+/// Show each human player's state on their controls: the set dims while the
+/// ship is down (and lets go of its buttons the moment it dies, so a held key
+/// can't carry over the respawn), and SPECIAL shows as unavailable while it
+/// can't fire, filling up (--charge, 0..1) as it reloads.
+let private syncPlayerControls () =
+    for i in 0 .. min 1 (humanCount - 1) do
+        let p = gs.Players[i]
+        if wasAlive[i] && not p.Alive then releaseTouchesIn playerSets[i]
+        wasAlive[i] <- p.Alive
+        setClass playerSets[i] "dead" (not p.Alive)
+        let stunned = p.Flags.HasFlag PlayerFlags.Stunned
+        let ready = p.Alive && p.SpecialReloadTimer = 0 && not stunned
+        let reload = max 1 (getWeapon p.SpecialWeapon).ReloadTicks
+        let charge = if ready then 1.0 else max 0.0 (min 1.0 (1.0 - float p.SpecialReloadTimer / float reload))
+        setClass specialButtons[i] "unavailable" (not ready)
+        setStyleVar specialButtons[i] "--charge" (string charge)
 
 let private menuLevel = getEl "tm-level"
 let private menuCpu = getEl "tm-cpu"
@@ -499,6 +557,7 @@ let private syncTouchUi () =
         setClass (body ()) "playing" gs.RoundActive
         if not gs.RoundActive then releaseAllTouches ()
     setClass (body ()) "paused" (gs.RoundActive && paused)
+    if gs.RoundActive then syncPlayerControls ()
     if not gs.RoundActive then
         setText menuLevel (match gs.Level with Some lv -> lv.Name | None -> "No terrain")
         setText menuCpu (string cpuCount)
@@ -516,6 +575,7 @@ let private onTap (e: obj) =
         if code = "Escape" || code = "pause" then releaseAllTouches ()
         keyAction code
         if code = "Space" then enterFullscreenLandscape ()
+        if code = "install" then promptInstall ()
         syncTouchUi ()   // labels now, not on the next animation frame
         blurActive ()   // a focused button would also "click" on a keyboard Space
 
@@ -556,6 +616,16 @@ onDocument "keyup" onKeyUp
 onWindow "resize" (fun _ -> resizeCanvas ())
 if touchMode then
     setClass (body ()) "touch" true
+    setClass (body ()) "iphone-tab" (iPhoneBrowserTab ())
+    // Install as app: browsers with an install API hand over a prompt to show
+    // from a tap; it goes away once the app is installed
+    onWindow "beforeinstallprompt" (fun e ->
+        preventDefault e
+        installPrompt <- e
+        setClass (body ()) "can-install" true)
+    onWindow "appinstalled" (fun _ ->
+        installPrompt <- null
+        setClass (body ()) "can-install" false)
     onDocument "pointerdown" onPointerDown
     onDocument "pointermove" onPointerMove
     onDocument "pointerup" onPointerUp
@@ -564,6 +634,14 @@ if touchMode then
     onDocument "contextmenu" preventDefault   // long-press menus
     // A backgrounded tab never delivers pointerup: drop every held key
     onWindow "blur" (fun _ -> releaseAllTouches (); keys.Clear())
+    onDocument "visibilitychange" (fun _ ->
+        if pageHidden () then
+            releaseAllTouches ()
+            keys.Clear())
+    // Safety net for a lost pointerup (iOS Safari can drop one): with no
+    // finger left on the screen, nothing can be held
+    onDocument "touchend" (fun e -> if touchCount e = 0 then releaseAllTouches ())
+    onDocument "touchcancel" (fun e -> if touchCount e = 0 then releaseAllTouches ())
 resizeCanvas ()
 let private levelFileInput = getEl "level-file"
 if not (isNull levelFileInput) then onElement levelFileInput "change" onLevelFile
