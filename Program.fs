@@ -8,6 +8,7 @@
 ///   P3: T/F/H/G + Y                                            weapon switch = 4 back / 5 fwd
 ///   P4: I/J/L/K + B                                            weapon switch = 6 back / 7 fwd
 ///   SPACE start · ESC reset · 1-4 players (menu) · F4 respawn-rule (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
+///   Touch devices: P1 vs CPU, on-screen buttons feeding the same keys
 module FsRocket.Program
 
 open System
@@ -79,9 +80,28 @@ let private assetUrl (file: string) =
             if seg.Contains '.' then p.Substring(0, i + 1) else p + "/"
     basePath + file
 
+/// Register the offline service worker (public/sw.js) for the installable app.
+/// Production builds only: Vite replaces import.meta.env.PROD, and a worker
+/// caching dev-server modules would serve stale code during development.
+[<Emit("(import.meta.env.PROD && 'serviceWorker' in navigator) ? navigator.serviceWorker.register($0).catch(function(){}) : void 0")>]
+let private registerServiceWorker (url: string) : unit = jsNative
+[<Emit("window.matchMedia && window.matchMedia('(pointer: coarse)').matches")>]
+let private coarsePointer () : bool = jsNative
+[<Emit("new URLSearchParams(window.location.search).get($0)")>]
+let private queryParam (name: string) : string = jsNative
+
 // ─── State ───────────────────────────────────────────────────────────────
 let private canvas = getEl "screen"
 let private ctx = get2dCtx canvas
+
+/// Touch layout: one human against CPU ships, a single full-window viewport,
+/// a tap menu and on-screen controls. On for coarse-pointer (phone/tablet)
+/// devices; `?touch=1` / `?touch=0` forces it either way.
+let private touchMode =
+    match queryParam "touch" with
+    | "1" -> true
+    | "0" -> false
+    | _ -> coarsePointer ()
 
 /// Design (logical) resolution: the game is laid out as if on the original
 /// 960x600 canvas and zoomed up uniformly to fill the window, so a bigger
@@ -120,7 +140,12 @@ let private resizeCanvas () =
         // 2500 CSS px, zoom in a bit more (smoothly, no jump at the
         // threshold) so the level is never shown fully.
         let boost = 1.0 + max 0.0 (cw - 2500.0) / 2500.0
-        let zoom = zoomBase * boost
+        // Phones in landscape are wider than 16:9, so the single touch
+        // viewport would also show the whole map width: zoom in until the
+        // logical width is no more than a 16:9 screen's.
+        let zoom =
+            if touchMode then max zoomBase (cw / (designH * 16.0 / 9.0))
+            else zoomBase * boost
         viewW <- int (cw / zoom)
         viewH <- int (ch / zoom)
         setCanvasW canvas (floor (cw * dpr))
@@ -129,8 +154,8 @@ let private resizeCanvas () =
         needsRender <- true   // resizing clears the canvas backing store
 
 let mutable private gs = createGameState 2
-let mutable private humanCount = 2
-let mutable private cpuCount = 0
+let mutable private humanCount = if touchMode then 1 else 2
+let mutable private cpuCount = if touchMode then 1 else 0
 let private keys = System.Collections.Generic.HashSet<string>()
 
 /// A level that has been loaded into the rotation, with a pristine copy of its
@@ -145,6 +170,9 @@ let mutable private hasUserLevels = false
 
 let private totalPlayers () = min 4 (humanCount + cpuCount)
 let private applyPlayerCount () =
+    // More humans leave fewer of the 4 slots for CPUs; without the clamp the
+    // CPUs would take over the last human's slot (CPUs are the last N players)
+    cpuCount <- min cpuCount (4 - humanCount)
     gs <- placeForMenu { gs with NumPlayers = totalPlayers (); CpuCount = cpuCount; RoundActive = false }
 
 let private activate (i: int) =
@@ -322,10 +350,9 @@ let private mapInputs () =
                 else p)
     gs <- { gs with Players = players }
 
-let private onKeyDown (e: obj) =
-    let code = evCode e
-    keys.Add code |> ignore
-    preventDefault e
+/// One-shot action bound to a key code (menu toggles, level/player changes,
+/// starting a round, weapon cycling). Shared by key presses and touch taps.
+let private keyAction (code: string) =
     needsRender <- true   // menu toggles/level switches change state between steps
     match code with
     | "Escape" -> if gs.RoundActive then gs <- { gs with RoundActive = false }
@@ -357,8 +384,127 @@ let private onKeyDown (e: obj) =
     | "F8" -> cpuCount <- min (4 - humanCount) (cpuCount + 1); applyPlayerCount ()
     | _ -> ()
 
+/// Hold a key down: the held set feeds mapInputs, then the key's action runs.
+let private pressKey (code: string) =
+    keys.Add code |> ignore
+    keyAction code
+
+let private onKeyDown (e: obj) =
+    preventDefault e
+    pressKey (evCode e)
+
 let private onKeyUp (e: obj) =
     keys.Remove(evCode e) |> ignore
+
+// ─── Touch controls ─────────────────────────────────────────────────────────
+// The touch layout drives P1 through the same held-key set as the keyboard:
+// data-key buttons (turn left/right, thrust, fire, special, weapon cycle) hold
+// their key while a finger is on them, and sliding onto another button swaps
+// keys; data-action buttons run keyAction once per tap.
+
+[<Emit("document.body")>]
+let private body () : obj = jsNative
+[<Emit("$0.classList.toggle($1, $2)")>]
+let private setClass (el: obj) (cls: string) (on: bool) : unit = jsNative
+[<Emit("$0.textContent = $1")>]
+let private setText (el: obj) (s: string) : unit = jsNative
+[<Emit("($0 && $0.closest) ? $0.closest($1) : null")>]
+let private closest (el: obj) (selector: string) : obj = jsNative
+[<Emit("$0.getAttribute($1) || ''")>]
+let private attr (el: obj) (name: string) : string = jsNative
+[<Emit("document.elementFromPoint($0, $1)")>]
+let private elementAt (x: float) (y: float) : obj = jsNative
+[<Emit("$0 === $1")>]
+let private sameEl (a: obj) (b: obj) : bool = jsNative
+[<Emit("$0.pointerId")>]
+let private pointerId (e: obj) : int = jsNative
+[<Emit("$0.clientX")>]
+let private clientX (e: obj) : float = jsNative
+[<Emit("$0.clientY")>]
+let private clientY (e: obj) : float = jsNative
+[<Emit("document.activeElement && document.activeElement.blur && document.activeElement.blur()")>]
+let private blurActive () : unit = jsNative
+/// Fullscreen + landscape lock where the browser allows it (Android); a no-op
+/// elsewhere (iOS Safari has neither for pages). Must run inside a tap handler.
+/// Never throws: older browsers return no promise from requestFullscreen.
+[<Emit("(function(){ try { var d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) { Promise.resolve(d.requestFullscreen()).then(function(){ if (screen.orientation && screen.orientation.lock) return screen.orientation.lock('landscape'); }).catch(function(){}); } } catch (e) {} })()")>]
+let private enterFullscreenLandscape () : unit = jsNative
+
+/// Finger → data-key button it is holding.
+let private touchHeld = System.Collections.Generic.Dictionary<int, obj>()
+
+/// Release `el`'s key and highlight unless another finger still holds it.
+let private releaseButton (el: obj) =
+    if not (touchHeld.Values |> Seq.exists (sameEl el)) then
+        keys.Remove(attr el "data-key") |> ignore
+        setClass el "down" false
+
+/// Point finger `id` at button `el` (null = none), swapping held keys.
+let private holdButton (id: int) (el: obj) =
+    let prev = match touchHeld.TryGetValue id with | true, p -> p | _ -> null
+    if not (sameEl prev el) then
+        if not (isNull prev) then
+            touchHeld.Remove id |> ignore
+            releaseButton prev
+        if not (isNull el) then
+            touchHeld[id] <- el
+            setClass el "down" true
+            pressKey (attr el "data-key")
+
+let private releaseAllTouches () =
+    for el in Seq.toArray touchHeld.Values do
+        setClass el "down" false
+        keys.Remove(attr el "data-key") |> ignore
+    touchHeld.Clear()
+
+let private onPointerDown (e: obj) =
+    let button = closest (evTarget e) "[data-key]"
+    if not (isNull button) then
+        preventDefault e
+        holdButton (pointerId e) button
+
+let private onPointerMove (e: obj) =
+    let id = pointerId e
+    if touchHeld.ContainsKey id then
+        holdButton id (closest (elementAt (clientX e) (clientY e)) "[data-key]")
+
+let private onPointerUp (e: obj) =
+    holdButton (pointerId e) null
+
+let private menuLevel = getEl "tm-level"
+let private menuCpu = getEl "tm-cpu"
+let private menuRespawn = getEl "tm-respawn"
+let private menuBase = getEl "tm-base"
+let private menuOnePlayer = getEl "tm-p1"
+let private menuTwoPlayers = getEl "tm-p2"
+let mutable private shownPlaying = false
+
+/// Mirror game state into the touch menu labels and the body.playing class
+/// (which swaps menu ↔ controls). Called after each rendered frame and tap.
+let private syncTouchUi () =
+    if gs.RoundActive <> shownPlaying then
+        shownPlaying <- gs.RoundActive
+        setClass (body ()) "playing" gs.RoundActive
+        if not gs.RoundActive then releaseAllTouches ()
+    if not gs.RoundActive then
+        setText menuLevel (match gs.Level with Some lv -> lv.Name | None -> "No terrain")
+        setText menuCpu (string cpuCount)
+        setText menuRespawn (if gs.RespawnOnDeath then "ON" else "OFF")
+        setText menuBase (if gs.WeaponSwitchOnlyOnBase then "On a base" else "Anytime")
+        setClass menuOnePlayer "selected" (humanCount = 1)
+        setClass menuTwoPlayers "selected" (humanCount = 2)
+        // Split controls for 2+ humans (3-4 via a keyboard still get P1/P2 sets)
+        setClass (body ()) "two-players" (humanCount >= 2)
+
+let private onTap (e: obj) =
+    let button = closest (evTarget e) "[data-action]"
+    if not (isNull button) then
+        let code = attr button "data-action"
+        if code = "Escape" then releaseAllTouches ()
+        keyAction code
+        if code = "Space" then enterFullscreenLandscape ()
+        syncTouchUi ()   // labels now, not on the next animation frame
+        blurActive ()   // a focused button would also "click" on a keyboard Space
 
 // ─── Game loop (fixed 36 FPS step, rendered every animation frame) ──────────
 [<Literal>]
@@ -377,7 +523,10 @@ let rec private loop (ts: float) =
         acc <- acc - frameMs
         needsRender <- true
     if needsRender then
-        renderFrame ctx gs viewW viewH
+        // Touch layout: viewports only for the humans, not the CPU ships
+        let views = if touchMode then humanCount else gs.NumPlayers
+        renderFrame ctx gs views (not touchMode) viewW viewH
+        if touchMode then syncTouchUi ()
         if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
         needsRender <- false
     requestFrame loop
@@ -386,9 +535,20 @@ let rec private loop (ts: float) =
 onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
 onWindow "resize" (fun _ -> resizeCanvas ())
+if touchMode then
+    setClass (body ()) "touch" true
+    onDocument "pointerdown" onPointerDown
+    onDocument "pointermove" onPointerMove
+    onDocument "pointerup" onPointerUp
+    onDocument "pointercancel" onPointerUp
+    onDocument "click" onTap
+    onDocument "contextmenu" preventDefault   // long-press menus
+    // A backgrounded tab never delivers pointerup: drop every held key
+    onWindow "blur" (fun _ -> releaseAllTouches (); keys.Clear())
 resizeCanvas ()
 let private levelFileInput = getEl "level-file"
 if not (isNull levelFileInput) then onElement levelFileInput "change" onLevelFile
 applyPlayerCount ()
 loadBundledLevels ()
+registerServiceWorker (assetUrl "sw.js")
 requestFrame loop

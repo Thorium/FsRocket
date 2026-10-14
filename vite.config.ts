@@ -18,7 +18,9 @@ export default defineConfig({
   clearScreen: false,
   server: {
     watch: {
-      ignored: ['**/*.fs'] // Don't watch F# sources; Fable handles them
+      // Don't watch F# sources (Fable handles them) or MSBuild output, whose
+      // short-lived temp files crash the watcher with EBUSY on Windows
+      ignored: ['**/*.fs', '**/obj/**', '**/bin/**']
     }
   }
 })

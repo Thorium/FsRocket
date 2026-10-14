@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8"/>
-    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
     <title>FsRocket</title>
+    <meta content="#0a0a12" name="theme-color"/>
+    <!-- Installable app: manifest + icons (public/), service worker registered in Program.fs -->
+    <link href="/manifest.webmanifest" rel="manifest"/>
+    <link href="/icons/favicon-64.png" rel="icon" type="image/png"/>
+    <link href="/icons/apple-touch-icon.png" rel="apple-touch-icon"/>
+    <meta content="yes" name="mobile-web-app-capable"/>
+    <meta content="yes" name="apple-mobile-web-app-capable"/>
+    <meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"/>
+    <meta content="FsRocket" name="apple-mobile-web-app-title"/>
     <link href="./styles.css" rel="stylesheet"/>
 </head>
 <body>
@@ -19,6 +28,77 @@
     </label>
     <a class="github-link" href="https://github.com/" rel="noopener noreferrer" target="_blank">FsRocket — F# + Fable</a>
 </div>
+
+<!-- Touch layout (body.touch): tap menu between rounds, controls during one.
+     data-action buttons run the matching key's menu action once per tap;
+     data-key buttons hold that key while a finger is on them. -->
+<div id="touch-menu">
+    <h1>FsRocket</h1>
+    <button class="tm-start" data-action="Space" type="button">START</button>
+    <div class="tm-row">
+        <span class="tm-label">Players</span>
+        <button class="tm-choice" data-action="Digit1" id="tm-p1" type="button">1 player</button>
+        <button class="tm-choice" data-action="Digit2" id="tm-p2" type="button">2 players</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Level</span>
+        <button data-action="F5" type="button" aria-label="Previous level">◀</button>
+        <span class="tm-value" id="tm-level">…</span>
+        <button data-action="F6" type="button" aria-label="Next level">▶</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">CPU ships</span>
+        <button data-action="F7" type="button" aria-label="Fewer CPU ships">−</button>
+        <span class="tm-value" id="tm-cpu">1</span>
+        <button data-action="F8" type="button" aria-label="More CPU ships">+</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Respawn</span>
+        <button class="tm-toggle" data-action="F4" id="tm-respawn" type="button">ON</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Weapon switch</span>
+        <button class="tm-toggle" data-action="F9" id="tm-base" type="button">On a base</button>
+    </div>
+</div>
+
+<div id="touch-controls">
+    <button class="tc tc-quit" data-action="Escape" type="button" aria-label="Quit the round, back to menu">QUIT</button>
+    <!-- One control set per human; P2's set (arrows / RShift / 8-9 keys) and the
+         split layout only show with body.two-players -->
+    <div class="tc-player tc-p1">
+        <div class="tc-cluster tc-turn">
+            <button class="tc tc-big" data-key="KeyA" type="button" aria-label="Player 1 turn left">◀</button>
+            <button class="tc tc-big" data-key="KeyD" type="button" aria-label="Player 1 turn right">▶</button>
+        </div>
+        <div class="tc-cluster tc-weapon">
+            <button class="tc tc-small" data-key="Digit1" type="button" aria-label="Player 1 previous weapon">◀ WPN</button>
+            <button class="tc tc-small" data-key="Digit2" type="button" aria-label="Player 1 next weapon">WPN ▶</button>
+        </div>
+        <div class="tc-cluster tc-act">
+            <button class="tc tc-big" data-key="KeyW" type="button">THRUST</button>
+            <button class="tc tc-big" data-key="Tab" type="button">FIRE</button>
+            <button class="tc tc-big" data-key="KeyS" type="button">SPECIAL</button>
+        </div>
+    </div>
+    <div class="tc-player tc-p2">
+        <div class="tc-cluster tc-turn">
+            <button class="tc tc-big" data-key="ArrowLeft" type="button" aria-label="Player 2 turn left">◀</button>
+            <button class="tc tc-big" data-key="ArrowRight" type="button" aria-label="Player 2 turn right">▶</button>
+        </div>
+        <div class="tc-cluster tc-weapon">
+            <button class="tc tc-small" data-key="Digit8" type="button" aria-label="Player 2 previous weapon">◀ WPN</button>
+            <button class="tc tc-small" data-key="Digit9" type="button" aria-label="Player 2 next weapon">WPN ▶</button>
+        </div>
+        <div class="tc-cluster tc-act">
+            <button class="tc tc-big" data-key="ArrowUp" type="button">THRUST</button>
+            <button class="tc tc-big" data-key="ShiftRight" type="button">FIRE</button>
+            <button class="tc tc-big" data-key="ArrowDown" type="button">SPECIAL</button>
+        </div>
+    </div>
+</div>
+
+<div id="rotate-hint">Turn your device sideways to play</div>
 <script src="./Program.fs.js" type="module"></script>
 </body>
 </html>

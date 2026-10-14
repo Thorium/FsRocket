@@ -65,6 +65,10 @@ Deployment to GitHub Pages (https://thorium.github.io/FsRocket/) is automated by
 
 **Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F9` toggles the "switch weapons only on a base" rule, `F10` toggles gamepad input, `Space` starts a round, `Escape` resets to the menu.
 
+**Touch (phones / tablets):** on touch devices the game switches to single-player against CPU ships (1 by default) in one full-window landscape viewport. A tap menu picks 1 or 2 players, the level, CPU count, respawn and weapon-switch rules. With 2 players the screen splits (P1 left, P2 right) and each half gets its own control set, rimmed in that player's ship colour. In a round, `◀`/`▶` on the left turn, the right side has `THRUST`, `FIRE`, `SPECIAL` and the weapon-cycle buttons, and `QUIT` ends the round and returns to the menu. Android goes fullscreen in landscape on `START`; in portrait a prompt asks to turn the device. `?touch=1` / `?touch=0` in the URL forces the touch layout on or off.
+
+**Install as an app:** the web build is an installable app (web app manifest + offline service worker). On Android Chrome use *Install app* / *Add to Home screen*; it then launches fullscreen in landscape and starts offline after one online launch. On iPhone/iPad use Safari's *Share → Add to Home Screen*. Desktop Chrome/Edge offer the install button in the address bar. The service worker is only registered in production builds (`npm run build`), not under the Vite dev server.
+
 By default the special weapon can only be changed while **parked on a base**; the per-player keys above cycle it. Use the **Upload a .LEV map** button under the canvas to load your own maps.
 
 ## Project Structure

@@ -585,7 +585,10 @@ let drawBorder (ctx: obj) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
     strokeRectJs ctx (float vx + 1.0) (float vy + 1.0) (float vw - 2.0) (float vh - 2.0)
 
 // ─── Render full frame ─────────────────────────────────────────────────
-let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
+/// `views` is how many players get a viewport (players 0..views-1); `textMenu`
+/// draws the keyboard help over the dimmed menu backdrop (the touch layout has
+/// its own HTML menu instead).
+let renderFrame (ctx: obj) (gs: GameState) (views: int) (textMenu: bool) (windowW: int) (windowH: int) =
     setSmoothing ctx false
     setBaseline ctx "top"
     fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
@@ -597,8 +600,9 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
         | Some level -> currentTerrainCanvas level gs.TerrainDirty
         | None -> null
 
-    let layouts = viewportLayout gs.NumPlayers windowW windowH
-    for i in 0 .. gs.NumPlayers - 1 do
+    let views = min views gs.NumPlayers
+    let layouts = viewportLayout views windowW windowH
+    for i in 0 .. views - 1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
             drawPlayerView ctx gs tcanvas i vx vy vw vh
@@ -606,6 +610,7 @@ let renderFrame (ctx: obj) (gs: GameState) (windowW: int) (windowH: int) =
 
     if not gs.RoundActive then
         fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 192)
+    if not gs.RoundActive && textMenu then
         let cx = float (windowW / 2 - 230)
         let mutable y = float (windowH / 2 - 90)
         drawText ctx "FsRocket" cx y titleFont "rgb(255,255,255)"
