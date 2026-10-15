@@ -4,6 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Explorer / taskbar icon of the .exe; the window loads the same file -->
+    <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,7 +16,12 @@
     <Compile Include="Entities.fs" />
     <Compile Include="Game.fs" />
     <Compile Include="Renderer.fs" />
+    <Compile Include="ShortcutKeys.fs" />
     <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icon.ico" LogicalName="Icon.ico" />
   </ItemGroup>
 
   <!-- Copy all .LEV level files to the output directory -->

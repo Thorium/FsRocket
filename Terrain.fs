@@ -111,6 +111,27 @@ let decompressPage (src: byte array) (srcOffset: int) (dest: byte array) (destOf
 let inline private readU16LE (data: byte array) (offset: int) : int =
     int data[offset] ||| (int data[offset + 1] <<< 8)
 
+/// Decompress a .LEV file into a 320x400 pixel array + 4 viewport words
+let decompressLevel (data: byte array) : byte array * (int * int * int * int) =
+    // Last 8 bytes are 4 LE uint16 viewport words
+    let compressedSize = data.Length - 8
+
+    // Read viewport words from last 8 bytes
+    let vp0 = readU16LE data compressedSize
+    let vp1 = readU16LE data (compressedSize + 2)
+    let vp2 = readU16LE data (compressedSize + 4)
+    let vp3 = readU16LE data (compressedSize + 6)
+
+    let pixels = Array.zeroCreate<byte> (MapWidth * MapHeight)
+
+    // Pass 1: decompress first 320x200 page (rows 0..199)
+    let srcAfterPage1 = decompressPage data 0 pixels 0
+
+    // Pass 2: decompress second 320x200 page (rows 200..399)
+    decompressPage data srcAfterPage1 pixels PageSize |> ignore
+
+    pixels, (vp0, vp1, vp2, vp3)
+
 // ─── RLE Compression (exact inverse of decompressPage) ─────────────────
 //
 // The decoder treats "the byte I just wrote equals the byte before it" as a
@@ -152,39 +173,20 @@ let compressPage (dest: byte array) (destOffset: int) (out: ResizeArray<byte>) :
 
         di <- di + 1
 
+
 /// Compress a 320x400 pixel array + viewport words back into .LEV bytes.
 /// Round-trips with decompressLevel: decompressLevel (compressLevel px vp) = (px, vp).
 let compressLevel (pixels: byte array) (viewports: int * int * int * int) : byte array =
     let out = ResizeArray<byte>(pixels.Length / 2 + 8)
     compressPage pixels 0 out          // page 1: rows 0..199
     compressPage pixels PageSize out   // page 2: rows 200..399
+    // the four viewport words, little-endian uint16 (no BitConverter, so this
+    // stays Fable-friendly like readU16LE)
     let v0, v1, v2, v3 = viewports
-    out.AddRange(BitConverter.GetBytes(uint16 v0))
-    out.AddRange(BitConverter.GetBytes(uint16 v1))
-    out.AddRange(BitConverter.GetBytes(uint16 v2))
-    out.AddRange(BitConverter.GetBytes(uint16 v3))
+    for v in [ v0; v1; v2; v3 ] do
+        out.Add(byte (v &&& 0xFF))
+        out.Add(byte ((v >>> 8) &&& 0xFF))
     out.ToArray()
-
-/// Decompress a .LEV file into a 320x400 pixel array + 4 viewport words
-let decompressLevel (data: byte array) : byte array * (int * int * int * int) =
-    // Last 8 bytes are 4 LE uint16 viewport words
-    let compressedSize = data.Length - 8
-
-    // Read viewport words from last 8 bytes
-    let vp0 = readU16LE data compressedSize
-    let vp1 = readU16LE data (compressedSize + 2)
-    let vp2 = readU16LE data (compressedSize + 4)
-    let vp3 = readU16LE data (compressedSize + 6)
-
-    let pixels = Array.zeroCreate<byte> (MapWidth * MapHeight)
-
-    // Pass 1: decompress first 320x200 page (rows 0..199)
-    let srcAfterPage1 = decompressPage data 0 pixels 0
-
-    // Pass 2: decompress second 320x200 page (rows 200..399)
-    decompressPage data srcAfterPage1 pixels PageSize |> ignore
-
-    pixels, (vp0, vp1, vp2, vp3)
 
 // ─── Pixel Access ──────────────────────────────────────────────────────
 
@@ -218,6 +220,20 @@ let inline isPassable (pixel: byte) =
 /// indestructible pixels — the shaded grey landing-pad bars.
 let inline isIndestructible (pixel: byte) =
     isBase pixel
+
+/// Colour of the grey frame the maps draw along their edges.
+[<Literal>]
+let FrameColor = 0x07uy
+/// How far in from the map edge the frame reaches (2-3 px in the bundled maps,
+/// thicker in places).
+[<Literal>]
+let FrameDepth = 6
+
+/// Is this pixel the map's edge frame — "bedrock" that ammo can't erase,
+/// like the pads?
+let inline isFrame (x: int) (y: int) (pixel: byte) =
+    pixel = FrameColor
+    && (x < FrameDepth || y < FrameDepth || x >= MapWidth - FrameDepth || y >= MapHeight - FrameDepth)
 
 // ─── Spawn Point Scanning  ─────
 //
@@ -296,12 +312,6 @@ let loadLevelFromBytes (name: string) (data: byte array) : LevelData =
       SpawnPoints = spawns
       Name = name }
 
-/// Write a level back out as a compressed .LEV file. Spawn points are derived
-/// from the base pixels on load, so only the pixels + viewport words are stored.
-let saveLevel (filePath: string) (level: LevelData) : unit =
-    let bytes = compressLevel level.Pixels level.Viewports
-    File.WriteAllBytes(filePath, bytes)
-
 /// Create a fresh, empty 320x400 level (all VoidColor / flyable sky). The
 /// viewport words default to a neutral full-map rectangle — they are metadata
 /// only and do not affect gameplay.
@@ -312,6 +322,12 @@ let newBlankLevel (name: string) : LevelData =
       Name = name }
 
 #if !FABLE_COMPILER
+/// Write a level back out as a compressed .LEV file. Spawn points are derived
+/// from the base pixels on load, so only the pixels + viewport words are stored.
+let saveLevel (filePath: string) (level: LevelData) : unit =
+    let bytes = compressLevel level.Pixels level.Viewports
+    File.WriteAllBytes(filePath, bytes)
+
 /// Read a .LEV file from disk (desktop builds only — Fable has no file system).
 let loadLevel (filePath: string) : LevelData =
     let data = File.ReadAllBytes filePath
@@ -395,7 +411,7 @@ let inline setPixel (pixels: byte array) (x: int) (y: int) (value: byte) =
         pixels[y * MapWidth + x] <- value
 
 /// Erase terrain in a circle (paint black / VoidColor) around a point.
-/// Skips indestructible pixels (dark gray).
+/// Skips the pads and the map's edge frame.
 /// Returns true if any pixels were actually erased.
 let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: float) : bool =
     let ix = int (round cx)
@@ -410,7 +426,8 @@ let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: flo
                 let py = iy + dy
                 if px >= 0 && px < MapWidth && py >= 0 && py < MapHeight then
                     let existing = pixels[py * MapWidth + px]
-                    if existing <> VoidColor && existing <> WaterColor && not (isBase existing) then
+                    if existing <> VoidColor && existing <> WaterColor && not (isBase existing)
+                       && not (isFrame px py existing) then
                         pixels[py * MapWidth + px] <- VoidColor
                         erased <- true
     if erased then markDirty (ix - r) (iy - r) (ix + r) (iy + r)

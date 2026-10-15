@@ -188,7 +188,8 @@ check "multicannon center: VelY ~ -4.0" (approx (snd mcResults[1]) (-4.0))
 // With angle=0, fire direction = 90 degrees.
 // Offset -2.2 → 87.8° → cos(87.8°) > 0 (slight right), sin(87.8°) ≈ 1
 // Offset +2.2 → 92.2° → cos(92.2°) < 0 (slight left), sin(92.2°) ≈ 1
-let leftVx = fst mcResults[0]   // -2.2 offset → slight rightward
+/// -2.2 offset → slight rightward
+let leftVx = fst mcResults[0]
 /// +2.2 offset → slight leftward
 let rightVx = fst mcResults[2]
 check "multicannon spread: -2.2 offset gives VelX > 0 (right)" (leftVx > 0.0)

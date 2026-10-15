@@ -35,6 +35,8 @@ type Player =
       KeyLeft: bool
       KeyRight: bool
       KeyFire: bool
+      KeyFirePrev: bool         // KeyFire on the previous tick — tapping the fire
+                                // key (fresh press) may beat the auto-fire reload
       KeyDown: bool
       Ammo: int
       Color: int                // Player color index
@@ -84,6 +86,16 @@ type Wall =
 
 // ─── Game State ───────────────────────────────────────────────────────
 
+/// When a ship may change its special weapon.
+type WeaponSwitchRule =
+    /// Only while parked on a base (the default)
+    | OnlyOnBase
+    /// Any time during a round
+    | Anytime
+    /// Only before the round: each human picks (or draws a random) special at
+    /// the start, and nobody — CPU ships included — switches during the round
+    | OnlyAtStart
+
 type GameState =
     { Players: Player list
       Entities: Entity list
@@ -96,6 +108,6 @@ type GameState =
       Level: Terrain.LevelData option
       LevelFilePath: string       // Full path to current .LEV file (empty = no terrain)
       TerrainDirty: bool
-      WeaponSwitchOnlyOnBase: bool  // Default: special weapon can only be changed while parked on a base
+      WeaponSwitch: WeaponSwitchRule  // Default: special weapon can only be changed while parked on a base
       RespawnOnDeath: bool          // Default: destroyed ships respawn after a short delay; off = ships stay dead and the round ends when at most one is left
       GamepadsEnabled: bool }       // Default: connected gamepads claim human player slots; off = keyboard only
