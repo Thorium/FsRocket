@@ -19,14 +19,16 @@ let spawnExplosion (rng: Random) (x: float) (y: float) (count: int) (speed: floa
 /// Pool of special weapons a CPU player may draw from: everything cyclable
 /// (Enabled, mirroring the human weapon-switch keys) except the plain Cannon,
 /// which is the always-available main fire.
-let private cpuWeaponPool =
+/// Every special weapon a ship can carry: the enabled weapons except the
+/// Cannon (always the main gun).
+let specialWeaponPool =
     [| for i in 0 .. weapons.Length - 1 do
          let wt = enum<WeaponType> i
          if weapons[i].Enabled && wt <> WeaponType.Cannon then yield wt |]
 
-/// Random special weapon for a CPU, always different from the current one.
+/// Random special weapon, always different from the current one.
 let randomSpecialWeapon (rng: Random) (current: WeaponType) : WeaponType =
-    let pool = cpuWeaponPool |> Array.filter (fun wt -> wt <> current)
+    let pool = specialWeaponPool |> Array.filter (fun wt -> wt <> current)
     if pool.Length = 0 then current
     else pool[rng.Next pool.Length]
 
@@ -467,7 +469,9 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 OnBase = onBase }
 
     let p =
-        if p.IsCpu && justDocked then
+        // CPU ships swap specials on docking — except when weapons are
+        // fixed for the whole round
+        if p.IsCpu && justDocked && gs.WeaponSwitch <> OnlyAtStart then
             // Swapping the special also drops the magnofilter field — the
             // toggle-off action belongs to the weapon being swapped away
             { p with SpecialWeapon = randomSpecialWeapon gs.Rng p.SpecialWeapon

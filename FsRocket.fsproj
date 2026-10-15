@@ -17,6 +17,7 @@
     <Compile Include="Entities.fs" />
     <Compile Include="Game.fs" />
     <Compile Include="Renderer.fs" />
+    <Compile Include="ShortcutKeys.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

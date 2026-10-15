@@ -11,12 +11,14 @@
 ///   1-4: Set player count (menu only)
 ///   Weapon switch (in-game): P1 = 1 back / 2 fwd, P2 = 8 back / 9 fwd, P3 = 4 back / 5 fwd, P4 = 6 back / 7 fwd
 ///     By default a weapon can only be changed while parked on a base.
-///   F9: Toggle "change weapons only on bases"
+///   F9: Cycle the weapon-switch rule (on a base / anytime / game start)
+///   F1: Keys & controls screen (menu only)
 ///   F4: Toggle "respawn on death" (menu only) — off = last ship flying wins the round
 ///   F5/F6: Prev/next level
 ///   F10: Toggle gamepad input (pads claim players in order; keyboard stays active)
-///   Space: Start round
-///   Escape: Quit
+///   Space: Start round (under the Game start rule: choose weapons first)
+///   Escape: Back to the menu / quit
+///   The menu is clickable with the mouse too.
 module FsRocket.Program
 
 open System
@@ -48,6 +50,10 @@ let private discoverLevels () : string array =
 
 let levelFiles = discoverLevels ()
 
+/// The level the game opens on: wide open space, gentle for new pilots.
+[<Literal>]
+let private startLevel = "VIIDAKKO"
+
 let tryLoadLevel (gs: GameState) (name: string) : GameState option =
     let path = levelPath name
     if IO.File.Exists path then
@@ -57,14 +63,18 @@ let tryLoadLevel (gs: GameState) (name: string) : GameState option =
 
 // ─── Special weapon cycling helper ────────────────────────────────────
 
+/// Whether a ship may switch its special right now (the F9 rule).
+let canSwitchWeapon (gs: GameState) (p: Player) =
+    match gs.WeaponSwitch with
+    | Anytime -> true
+    | OnlyOnBase -> not gs.RoundActive || p.OnBase
+    | OnlyAtStart -> not gs.RoundActive
+
 let cycleWeapon (gs: GameState) (playerIdx: int) (dir: int) : GameState =
     if playerIdx >= gs.NumPlayers then gs
     else
         let p = gs.Players[playerIdx]
-        // Default rule: during a live round the special weapon can only be changed
-        // while the ship is parked on a base. Toggle off (F9) to allow it anywhere.
-        let allowed = (not (gs.WeaponSwitchOnlyOnBase && gs.RoundActive)) || p.OnBase
-        if not allowed then gs
+        if not (canSwitchWeapon gs p) then gs
         else
             let len = weapons.Length
             let mutable wt = (int p.SpecialWeapon + dir + len) % len
@@ -80,6 +90,17 @@ let cycleWeapon (gs: GameState) (playerIdx: int) (dir: int) : GameState =
                              Flags = p.Flags &&& ~~~PlayerFlags.Magno }
             let players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then p else pl)
             { gs with Players = players }
+
+// ─── Weapon choice before the round (F9 rule: Game start) ─────────────
+// START opens a dialog where each human picks a special, or Random; the round
+// then begins with those weapons and nobody switches until it ends.
+
+/// A weapon choice: Random, or the int value of a WeaponType.
+[<Literal>]
+let private RandomWeapon = -1
+
+/// The dialog's options in order: Random, then every special weapon.
+let private weaponChoiceOptions = Array.append [| RandomWeapon |] (specialWeaponPool |> Array.map int)
 
 // ─── Gamepads ──────────────────────────────────────────────────────────
 // Connected gamepads claim human player slots in order: pad 1 drives P1,
@@ -115,6 +136,15 @@ let private connectedPads () : PadInput[] =
               WeaponNext = pressed st.Buttons.RightShoulder
               Start = pressed st.Buttons.Start } |]
 
+/// Keys with one-shot actions, by the code the actions are written in (menu
+/// buttons send the same codes).
+let private keyCodes =
+    [ Keys.Escape, "Escape"; Keys.Space, "Space"; Keys.F1, "F1"; Keys.F4, "F4"
+      Keys.F5, "F5"; Keys.F6, "F6"; Keys.F7, "F7"; Keys.F8, "F8"; Keys.F9, "F9"
+      Keys.F10, "F10"; Keys.F11, "F11"
+      Keys.D1, "Digit1"; Keys.D2, "Digit2"; Keys.D3, "Digit3"; Keys.D4, "Digit4"; Keys.D5, "Digit5"
+      Keys.D6, "Digit6"; Keys.D7, "Digit7"; Keys.D8, "Digit8"; Keys.D9, "Digit9" ]
+
 // ─── Game Class ────────────────────────────────────────────────────────
 
 type FsRocketGame() as this =
@@ -132,6 +162,13 @@ type FsRocketGame() as this =
     // Previous LB/RB/Start state per pad slot, for edge-triggered actions
     // (weapon cycling and starting a round fire once per press, not per tick).
     let padPrev = Array.create 4 (false, false, false)
+    let mutable prevMouse = Mouse.GetState()
+    let mutable mouseLogical = Point(-1, -1)
+
+    // Each player's weapon choice for the Game start rule, kept between rounds
+    let weaponChoices = Array.create 4 RandomWeapon
+    let mutable choosingWeapons = false
+    let mutable showingKeys = false
 
     let totalPlayers () = min 4 (humanCount + cpuCount)
 
@@ -163,10 +200,52 @@ type FsRocketGame() as this =
         this.IsFixedTimeStep <- true
         this.TargetElapsedTime <- TimeSpan.FromMilliseconds(28.0)
 
+    let humanPlayers () = gs.NumPlayers - gs.CpuCount
+
+    /// Step a player's choice through the options (their weapon keys / LB, RB).
+    let cycleChoice (playerIdx: int) (dir: int) =
+        if playerIdx < humanPlayers () then
+            let n = weaponChoiceOptions.Length
+            let i = max 0 (Array.IndexOf(weaponChoiceOptions, weaponChoices[playerIdx]))
+            weaponChoices[playerIdx] <- weaponChoiceOptions[(i + dir + n) % n]
+
+    /// Start the round; under the Game start rule, arm each human with their
+    /// choice (Random draws one now).
+    let beginRound () =
+        choosingWeapons <- false
+        gs <- initRound gs
+        if gs.WeaponSwitch = OnlyAtStart then
+            let players =
+                gs.Players
+                |> List.mapi (fun i p ->
+                    if i < gs.NumPlayers && not p.IsCpu then
+                        let wt =
+                            if weaponChoices[i] = RandomWeapon then randomSpecialWeapon gs.Rng p.SpecialWeapon
+                            else enum<WeaponType> weaponChoices[i]
+                        { p with SpecialWeapon = wt }
+                    else p)
+            gs <- { gs with Players = players }
+
+    /// START (Space, a pad's Start, the START buttons): under the Game start rule
+    /// it opens the weapon dialog first, and from the dialog it begins the round.
+    let startPressed () =
+        if not gs.RoundActive then
+            if choosingWeapons || gs.WeaponSwitch <> OnlyAtStart || humanPlayers () = 0 then beginRound ()
+            else choosingWeapons <- true
+
+    let menuView () =
+        { HumanCount = humanCount
+          ChoosingWeapons = choosingWeapons
+          ShowingKeys = showingKeys
+          WeaponChoices =
+            weaponChoices |> Array.map (fun c -> if c = RandomWeapon then "Random" else weapons[c].Name)
+          Mouse = mouseLogical }
+
     override this.Initialize() =
-        // Load default level
+        // Load the start level (or the first one, if it is missing)
         if levelFiles.Length > 0 then
-            match tryLoadLevel gs levelFiles[0] with
+            levelIdx <- max 0 (Array.IndexOf(levelFiles, startLevel))
+            match tryLoadLevel gs levelFiles[levelIdx] with
             | Some newGs -> gs <- newGs
             | None -> ()
         gs <- placeForMenu gs
@@ -179,85 +258,143 @@ type FsRocketGame() as this =
     member _.JustPressed (key: Keys) (curr: KeyboardState) =
         curr.IsKeyDown(key) && prevKeyState.IsKeyUp(key)
 
-    override this.Update(gameTime) =
-        let currKeyState = Keyboard.GetState()
-
-        // Special keys (edge-triggered)
-        if this.JustPressed Keys.Escape currKeyState then
-            if gs.RoundActive then
-                gs <- { gs with RoundActive = false }
-            else
-                this.Exit()
-
-        if this.JustPressed Keys.Space currKeyState && not gs.RoundActive then
-            gs <- initRound gs
-
-        if this.JustPressed Keys.F11 currKeyState then
-            graphics.IsFullScreen <- not graphics.IsFullScreen
-(*          // If you want native fulscreen instead:
-            if not graphics.IsFullScreen then
-                // Set native resolution before switching to fullscreen
-                let display = Microsoft.Xna.Framework.Graphics.GraphicsAdapter.DefaultAdapter.CurrentDisplayMode
-                graphics.PreferredBackBufferWidth <- display.Width
-                graphics.PreferredBackBufferHeight <- display.Height
-                graphics.HardwareModeSwitch <- false
-                graphics.IsFullScreen <- true
-            else
-                // Restore windowed resolution
-                graphics.PreferredBackBufferWidth <- 960
-                graphics.PreferredBackBufferHeight <- 600
-                graphics.IsFullScreen <- false
-*)
-            graphics.ApplyChanges()
-
-        // Player count is selected from the menu only (these number keys double as
-        // weapon-switch keys during a live round).
-        if not gs.RoundActive then
-            if this.JustPressed Keys.D1 currKeyState then humanCount <- 1; applyPlayerCount ()
-            if this.JustPressed Keys.D2 currKeyState then humanCount <- 2; applyPlayerCount ()
-            if this.JustPressed Keys.D3 currKeyState then humanCount <- 3; applyPlayerCount ()
-            if this.JustPressed Keys.D4 currKeyState then humanCount <- 4; applyPlayerCount ()
+    /// F11: borderless fullscreen at the desktop resolution, so the layout sees
+    /// the screen's real shape (an ultrawide screen gets the side-by-side
+    /// viewports); a hardware mode switch would pick a 4:3 mode instead.
+    member private this.ToggleFullScreen() =
+        if graphics.IsFullScreen then
+            graphics.IsFullScreen <- false
+            graphics.PreferredBackBufferWidth <- 960
+            graphics.PreferredBackBufferHeight <- 600
         else
-            // Weapon switch on a number key close to each player's controls:
-            //   P1 (left: WASD) = 1 back / 2 fwd, P2 (right: arrows/numpad) = 8 back / 9 fwd,
-            //   P3 (left: TFGH) = 4 back / 5 fwd, P4 (right: IJKL) = 6 back / 7 fwd
-            if this.JustPressed Keys.D1 currKeyState then gs <- cycleWeapon gs 0 (-1)
-            if this.JustPressed Keys.D2 currKeyState then gs <- cycleWeapon gs 0 1
-            if this.JustPressed Keys.D8 currKeyState then gs <- cycleWeapon gs 1 (-1)
-            if this.JustPressed Keys.D9 currKeyState then gs <- cycleWeapon gs 1 1
-            if this.JustPressed Keys.D4 currKeyState then gs <- cycleWeapon gs 2 (-1)
-            if this.JustPressed Keys.D5 currKeyState then gs <- cycleWeapon gs 2 1
-            if this.JustPressed Keys.D6 currKeyState then gs <- cycleWeapon gs 3 (-1)
-            if this.JustPressed Keys.D7 currKeyState then gs <- cycleWeapon gs 3 1
-        // F9 toggles the "change weapons only on bases" rule
-        if this.JustPressed Keys.F9 currKeyState then
-            gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+            let display = Microsoft.Xna.Framework.Graphics.GraphicsAdapter.DefaultAdapter.CurrentDisplayMode
+            graphics.HardwareModeSwitch <- false
+            graphics.PreferredBackBufferWidth <- display.Width
+            graphics.PreferredBackBufferHeight <- display.Height
+            graphics.IsFullScreen <- true
+        graphics.ApplyChanges()
+
+    /// Keys while the weapon dialog is open: each player's weapon keys (and the
+    /// dialog's < > buttons) step their choice, Space starts the round, Escape
+    /// goes back to the menu.
+    member private this.WeaponDialogKey(code: string) =
+        match code with
+        | "Space" -> beginRound ()
+        | "Escape" -> choosingWeapons <- false
+        | "F11" -> this.ToggleFullScreen()
+        | "Digit1" -> cycleChoice 0 -1
+        | "Digit2" -> cycleChoice 0 1
+        | "Digit8" -> cycleChoice 1 -1
+        | "Digit9" -> cycleChoice 1 1
+        | "Digit4" -> cycleChoice 2 -1
+        | "Digit5" -> cycleChoice 2 1
+        | "Digit6" -> cycleChoice 3 -1
+        | "Digit7" -> cycleChoice 3 1
+        | _ when code.StartsWith "wpn:" ->
+            match code.Split ':' with
+            | [| _; player; dir |] -> cycleChoice (int player) (int dir)
+            | _ -> ()
+        | _ -> ()
+
+    /// One-shot action bound to a key code in the menu or a round (menu toggles,
+    /// level/player changes, starting a round, weapon cycling).
+    member private this.MenuKeyAction(code: string) =
+        match code with
+        | "Escape" ->
+            if gs.RoundActive then gs <- { gs with RoundActive = false }
+            else this.Exit()
+        | "Space" -> startPressed ()
+        | "F11" -> this.ToggleFullScreen()
+        | "F1" -> if not gs.RoundActive then showingKeys <- true
+        // F9 cycles the weapon-switch rule
+        | "F9" ->
+            let next =
+                match gs.WeaponSwitch with
+                | OnlyOnBase -> Anytime
+                | Anytime -> OnlyAtStart
+                | OnlyAtStart -> OnlyOnBase
+            gs <- { gs with WeaponSwitch = next }
         // F10 toggles gamepad input (e.g. to ignore a drifting controller)
-        if this.JustPressed Keys.F10 currKeyState then
-            gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
+        | "F10" -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
         // F4 toggles "respawn on death" — menu only, so the rule can't flip mid-round
-        if this.JustPressed Keys.F4 currKeyState && not gs.RoundActive then
-            gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
-        if this.JustPressed Keys.F5 currKeyState then switchLevel -1
-        if this.JustPressed Keys.F6 currKeyState then switchLevel 1
-        if this.JustPressed Keys.F7 currKeyState then
+        | "F4" -> if not gs.RoundActive then gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
+        | "F5" -> switchLevel -1
+        | "F6" -> switchLevel 1
+        | "F7" ->
             cpuCount <- max 0 (cpuCount - 1)
             applyPlayerCount ()
-        if this.JustPressed Keys.F8 currKeyState then
+        | "F8" ->
             cpuCount <- min (4 - humanCount) (cpuCount + 1)
             applyPlayerCount ()
+        // Player count is selected from the menu only (these number keys double as
+        // weapon-switch keys during a live round).
+        | "Digit1" | "Digit2" | "Digit3" | "Digit4" when not gs.RoundActive ->
+            humanCount <- int (code.Substring 5)
+            applyPlayerCount ()
+        // Weapon switch on a number key close to each player's controls:
+        //   P1 (left: WASD) = 1 back / 2 fwd, P2 (right: arrows/numpad) = 8 back / 9 fwd,
+        //   P3 (left: TFGH) = 4 back / 5 fwd, P4 (right: IJKL) = 6 back / 7 fwd
+        | "Digit1" -> gs <- cycleWeapon gs 0 (-1)
+        | "Digit2" -> gs <- cycleWeapon gs 0 1
+        | "Digit8" -> gs <- cycleWeapon gs 1 (-1)
+        | "Digit9" -> gs <- cycleWeapon gs 1 1
+        | "Digit4" -> gs <- cycleWeapon gs 2 (-1)
+        | "Digit5" -> gs <- cycleWeapon gs 2 1
+        | "Digit6" -> gs <- cycleWeapon gs 3 (-1)
+        | "Digit7" -> gs <- cycleWeapon gs 3 1
+        | _ -> ()
 
-        // Gamepads: edge-triggered buttons (LB/RB cycle the special weapon,
-        // Start begins a round from the menu), then held controls merge into
-        // the player inputs below.
+    /// A key code's one-shot action (key presses and menu clicks alike): the open
+    /// dialog takes it first.
+    member private this.KeyAction(code: string) =
+        if choosingWeapons then this.WeaponDialogKey code
+        elif showingKeys then
+            match code with
+            | "Escape" | "F1" -> showingKeys <- false
+            | "F11" -> this.ToggleFullScreen()
+            | _ -> ()
+        else this.MenuKeyAction code
+
+    override this.Update(gameTime) =
+        // No Sticky Keys dialog from five presses of P2's RShift: Windows'
+        // accessibility shortcuts are off while the game window is in front
+        ShortcutKeys.sync ()
+        let currKeyState = Keyboard.GetState()
+
+        // One-shot keys (edge-triggered)
+        for key, code in keyCodes do
+            if this.JustPressed key currKeyState then this.KeyAction code
+
+        // Menu clicks: the mouse position in the renderer's logical pixels
+        let ms = Mouse.GetState()
+        let vp = this.GraphicsDevice.Viewport
+        let client = this.Window.ClientBounds
+        let zoom = menuZoomFor (float (max 1 vp.Width)) (float (max 1 vp.Height))
+        let toLogical (v: int) (clientSize: int) (physSize: int) =
+            int (float v * float physSize / float (max 1 clientSize) / zoom)
+        mouseLogical <- Point(toLogical ms.X client.Width vp.Width, toLogical ms.Y client.Height vp.Height)
+        let clicked = ms.LeftButton = ButtonState.Pressed && prevMouse.LeftButton = ButtonState.Released
+        if clicked && this.IsActive && not gs.RoundActive then
+            let w, h = int (float (max 1 vp.Width) / zoom), int (float (max 1 vp.Height) / zoom)
+            match menuHit (menuLayout gs (menuView ()) w h) mouseLogical with
+            | Some action -> this.KeyAction action
+            | None -> ()
+        prevMouse <- ms
+
+        // Gamepads: edge-triggered buttons (LB/RB cycle the special weapon, or
+        // the weapon dialog's choice; Start is START), then held controls merge
+        // into the player inputs below.
         let pads = if gs.GamepadsEnabled then connectedPads () else [||]
         pads |> Array.iteri (fun i pad ->
             if i < 4 then
                 let (pw, pn, ps) = padPrev[i]
                 let isHuman = i < gs.NumPlayers && not gs.Players[i].IsCpu
-                if isHuman && pad.WeaponPrev && not pw then gs <- cycleWeapon gs i -1
-                if isHuman && pad.WeaponNext && not pn then gs <- cycleWeapon gs i 1
-                if pad.Start && not ps && not gs.RoundActive then gs <- initRound gs
+                let step dir = if choosingWeapons then cycleChoice i dir else gs <- cycleWeapon gs i dir
+                if isHuman && pad.WeaponPrev && not pw then step -1
+                if isHuman && pad.WeaponNext && not pn then step 1
+                if pad.Start && not ps && not gs.RoundActive then
+                    showingKeys <- false
+                    startPressed ()
                 padPrev[i] <- (pad.WeaponPrev, pad.WeaponNext, pad.Start))
 
         // Map key states + held pad controls to player inputs
@@ -320,7 +457,7 @@ type FsRocketGame() as this =
     override this.Draw(gameTime) =
         let windowW = this.GraphicsDevice.Viewport.Width
         let windowH = this.GraphicsDevice.Viewport.Height
-        renderFrame renderRes this.GraphicsDevice gs windowW windowH
+        renderFrame renderRes this.GraphicsDevice gs (menuView ()) windowW windowH
 
         // Clear terrain dirty flag after the frame is rendered
         if gs.TerrainDirty then
@@ -332,6 +469,9 @@ type FsRocketGame() as this =
 
 [<EntryPoint>]
 let main _ =
-    use game = new FsRocketGame()
-    game.Run()
-    0
+    try
+        use game = new FsRocketGame()
+        game.Run()
+        0
+    finally
+        ShortcutKeys.restore ()

@@ -958,6 +958,173 @@ let drawBorder (sb: SpriteBatch) (pixel: Texture2D) (vx: int) (vy: int) (vw: int
     drawLine sb pixel (vx + vw - 1) (vy + vh - 1) vx (vy + vh - 1) c 2.0f
     drawLine sb pixel vx (vy + vh - 1) vx vy c 2.0f
 
+// ─── Menu (between rounds) ─────────────────────────────────────────────
+// The menu, the keys screen and the weapon dialog are laid out as data —
+// panels, texts and buttons — so drawing and mouse hit-testing share the
+// same rectangles. Each button carries the key code it mirrors (the same
+// codes the keyboard dispatcher in Program.fs takes).
+
+/// What the menu shows besides the game state.
+type MenuView =
+    { HumanCount: int
+      ChoosingWeapons: bool
+      ShowingKeys: bool
+      /// Each player's weapon choice, as shown ("Random" or a weapon name)
+      WeaponChoices: string array
+      /// Mouse position in logical pixels, for hover highlights
+      Mouse: Point }
+
+type ButtonKind =
+    | Plain
+    | Selected
+    | Primary
+
+type MenuElement =
+    | Panel of Rectangle
+    | Label of x: int * y: int * text: string * color: Color * scale: int
+    | Button of rect: Rectangle * text: string * key: string * action: string * kind: ButtonKind
+
+let private menuText = Color(0xE0, 0xE0, 0xE8)
+let private menuDim = Color(0x90, 0x90, 0xA0)
+let private menuGold = Color(0xFF, 0xD0, 0x40)
+
+/// Label text with its key hint after it.
+let private labelWithKey (x: int) (y: int) (text: string) (key: string) =
+    [ Label(x, y, text, menuText, 2)
+      if key <> "" then Label(x + fst (measureText text 2) + 6, y + 4, key, menuDim, 1) ]
+
+let private centredLabel (cx: int) (y: int) (text: string) (color: Color) (scale: int) =
+    Label(cx - fst (measureText text scale) / 2, y, text, color, scale)
+
+/// The weapon-switch rule as the menu names it.
+let weaponRuleName (rule: WeaponSwitchRule) =
+    match rule with
+    | OnlyOnBase -> "On a base"
+    | Anytime -> "Anytime"
+    | OnlyAtStart -> "Game start"
+
+let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) =
+    let pw, rowH = 500, 34
+    let ph = 74 + 44 + 6 * rowH + 48 + 22
+    let px, py = (windowW - pw) / 2, (windowH - ph) / 2
+    let lx, cx0, cw = px + 16, px + 250, 234   // label column, control column
+    let row k = py + 74 + 44 + k * rowH
+    let onOff b = if b then "ON" else "OFF"
+    let stepper (y: int) (value: string) (prevAction: string) (nextAction: string) (prevText: string) (nextText: string) =
+        [ Button(Rectangle(cx0, y, 34, 28), prevText, "", prevAction, Plain)
+          centredLabel (cx0 + cw / 2) (y + 6) value menuGold 2
+          Button(Rectangle(cx0 + cw - 34, y, 34, 28), nextText, "", nextAction, Plain) ]
+    let toggle (y: int) (text: string) (action: string) = Button(Rectangle(cx0, y, cw, 28), text, "", action, Plain)
+    let levelName = match gs.Level with Some lv -> lv.Name | None -> "No terrain"
+    [ yield Panel(Rectangle(px, py, pw, ph))
+      yield centredLabel (px + pw / 2) (py + 16) "FsRocket" Color.White 4
+      yield Button(Rectangle(px + 16, py + 66, pw - 32, 36), "START", "Space", "Space", Primary)
+      yield! labelWithKey lx (row 0 + 6) "Players" "1-4"
+      let bw = (cw - 3 * 8) / 4
+      for n in 1 .. 4 do
+          let kind = if view.HumanCount = n then Selected else Plain
+          yield Button(Rectangle(cx0 + (n - 1) * (bw + 8), row 0, bw, 28), string n, "", $"Digit{n}", kind)
+      yield! labelWithKey lx (row 1 + 6) "Level" "F5/F6"
+      yield! stepper (row 1) levelName "F5" "F6" "<" ">"
+      yield! labelWithKey lx (row 2 + 6) "CPU ships" "F7/F8"
+      yield! stepper (row 2) (string gs.CpuCount) "F7" "F8" "-" "+"
+      yield! labelWithKey lx (row 3 + 6) "Respawn" "F4"
+      yield toggle (row 3) (onOff gs.RespawnOnDeath) "F4"
+      yield! labelWithKey lx (row 4 + 6) "Weapon switch" "F9"
+      yield toggle (row 4) (weaponRuleName gs.WeaponSwitch) "F9"
+      yield! labelWithKey lx (row 5 + 6) "Gamepads" "F10"
+      yield toggle (row 5) (onOff gs.GamepadsEnabled) "F10"
+      yield Button(Rectangle(px + 16, row 6 + 8, pw - 32, 30), "Keys & controls", "F1", "F1", Plain)
+      yield centredLabel (px + pw / 2) (py + ph - 16) "Esc: quit   F11: fullscreen" menuDim 1 ]
+
+let private keysScreen (windowW: int) (windowH: int) =
+    let pw, ph = 640, 300
+    let px, py = (windowW - pw) / 2, (windowH - ph) / 2
+    let cols = [| 0; 60; 250; 420; 530 |]
+    let cell (c: int) (y: int) (text: string) (color: Color) = Label(px + 24 + cols[c], y, text, color, 2)
+    let rows =
+        [ "P1", playerColors[0], [ "W  A D"; "Tab"; "S"; "1 / 2" ]
+          "P2", playerColors[1], [ "Up  Left Right"; "RShift/Enter"; "Down"; "8 / 9" ]
+          "P3", playerColors[2], [ "T  F H"; "Y"; "G"; "4 / 5" ]
+          "P4", playerColors[3], [ "I  J L"; "B"; "K"; "6 / 7" ]
+          "Pad", menuText, [ "A  Stick/D-pad"; "B / RT"; "X / LT"; "LB / RB" ] ]
+    [ Panel(Rectangle(px, py, pw, ph))
+      centredLabel (px + pw / 2) (py + 16) "Keys & controls" Color.White 3
+      for c, h in List.indexed [ "Thrust Turn"; "Fire"; "Special"; "Weapon" ] do
+          cell (c + 1) (py + 58) h menuDim
+      for r, (name, color, cells) in List.indexed rows do
+          let y = py + 86 + r * 26
+          cell 0 y name color
+          for c, text in List.indexed cells do
+              cell (c + 1) y text menuText
+      centredLabel (px + pw / 2) (py + ph - 70) "Esc: back to the menu   F11: fullscreen   pad Start: begin the round" menuDim 1
+      Button(Rectangle(px + pw / 2 - 100, py + ph - 50, 200, 32), "CLOSE", "Esc", "F1", Plain) ]
+
+let private weaponDialog (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) =
+    let humans = gs.NumPlayers - gs.CpuCount
+    let rowH = 36
+    let pw, ph = 560, 70 + humans * rowH + 96
+    let px, py = (windowW - pw) / 2, (windowH - ph) / 2
+    let keys = [| "1/2"; "8/9"; "4/5"; "6/7" |]
+    let cx0, cw = px + 240, 300
+    [ Panel(Rectangle(px, py, pw, ph))
+      centredLabel (px + pw / 2) (py + 16) "Choose your weapon" Color.White 3
+      for i in 0 .. humans - 1 do
+          let y = py + 62 + i * rowH
+          Label(px + 20, y + 6, $"Player {i + 1}", playerColors[i], 2)
+          Label(px + 20 + fst (measureText $"Player {i + 1}" 2) + 6, y + 10, keys[i], menuDim, 1)
+          Button(Rectangle(cx0, y, 34, 28), "<", "", $"wpn:{i}:-1", Plain)
+          centredLabel (cx0 + cw / 2) (y + 6) view.WeaponChoices[i] menuGold 2
+          Button(Rectangle(cx0 + cw - 34, y, 34, 28), ">", "", $"wpn:{i}:1", Plain)
+      let by = py + 62 + humans * rowH + 8
+      Button(Rectangle(px + 16, by, 170, 34), "BACK", "Esc", "Escape", Plain)
+      Button(Rectangle(px + 200, by, pw - 216, 34), "START ROUND", "Space", "Space", Primary)
+      centredLabel (px + pw / 2) (by + 46) "Random draws a weapon when the round starts." menuDim 1
+      centredLabel (px + pw / 2) (by + 58) "Weapons can't be switched during the round." menuDim 1 ]
+
+/// The menu screen currently shown, in logical pixels.
+let menuLayout (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) : MenuElement list =
+    if view.ChoosingWeapons then weaponDialog gs view windowW windowH
+    elif view.ShowingKeys then keysScreen windowW windowH
+    else mainMenu gs view windowW windowH
+
+/// The action of the button under a logical-pixel point, if any.
+let menuHit (elements: MenuElement list) (p: Point) : string option =
+    elements |> List.tryPick (function
+        | Button(r, _, _, action, _) when r.Contains p -> Some action
+        | _ -> None)
+
+let private drawMenu (sb: SpriteBatch) (res: RenderResources) (elements: MenuElement list) (mouse: Point) =
+    let frame (r: Rectangle) (color: Color) =
+        drawRect sb res.Pixel r.X r.Y r.Width 2 color
+        drawRect sb res.Pixel r.X (r.Bottom - 2) r.Width 2 color
+        drawRect sb res.Pixel r.X r.Y 2 r.Height color
+        drawRect sb res.Pixel (r.Right - 2) r.Y 2 r.Height color
+    for e in elements do
+        match e with
+        | Panel r ->
+            drawRect sb res.Pixel r.X r.Y r.Width r.Height (Color(0x14, 0x14, 0x22, 0xF0))
+            frame r (Color(0x50, 0x50, 0x70))
+        | Label(x, y, text, color, scale) -> drawText sb res.FontTexture text x y color scale
+        | Button(r, text, key, _, kind) ->
+            let hover = r.Contains mouse
+            let fill, border, ink =
+                match kind with
+                | Primary -> Color(0x8C, 0xB8, 0xFF), Color(0xC0, 0xD8, 0xFF), Color(0x10, 0x18, 0x30)
+                | Selected -> Color(0x5A, 0x48, 0x10), menuGold, menuGold
+                | Plain -> Color(0x26, 0x26, 0x3A), Color(0x50, 0x50, 0x70), menuText
+            let fill = if hover then Color.Lerp(fill, Color.White, 0.18f) else fill
+            drawRect sb res.Pixel r.X r.Y r.Width r.Height fill
+            frame r border
+            let scale = if kind = Primary then 3 else 2
+            let tw, th = measureText text scale
+            let kw = if key = "" then 0 else fst (measureText key 1) + 8
+            let tx = r.X + (r.Width - tw - kw) / 2
+            drawText sb res.FontTexture text tx (r.Y + (r.Height - th) / 2) ink scale
+            if key <> "" then
+                let keyInk = if kind = Primary then Color(0x30, 0x40, 0x70) else menuDim
+                drawText sb res.FontTexture key (tx + tw + 8) (r.Y + (r.Height - 8) / 2 + 1) keyInk 1
+
 // ─── Render full frame ─────────────────────────────────────────────────
 
 /// Design (logical) resolution: the game is laid out as if on the original
@@ -980,12 +1147,16 @@ let zoomFor (physW: float) (physH: float) =
     let boost = 1.0 + max 0.0 (physW - 2500.0) / 2500.0
     zoomBase * boost
 
+/// Zoom of the menu screens: the design fit without the wide-screen boost,
+/// so the logical screen is at least 960x600 and every menu fits.
+let menuZoomFor (physW: float) (physH: float) = min (physW / designW) (physH / designH)
+
 /// windowW/windowH: the PHYSICAL backbuffer size. The whole frame (world,
 /// HUD, minimap, text, menu) is drawn in logical coordinates: SpriteBatch
 /// batches get Matrix.CreateScale(zoom) as transformMatrix and BasicEffect
 /// polygons compose the same scale through the World matrix. At exactly
 /// 960x600 the zoom is 1.0 (identity transform, output unchanged).
-let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (windowW: int) (windowH: int) =
+let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) =
     device.Clear Color.Black
 
     // Guard against a zero-size window (e.g. minimized) which would make the
@@ -1028,54 +1199,12 @@ let renderFrame (res: RenderResources) (device: GraphicsDevice) (gs: GameState) 
             drawBorder res.SpriteBatch res.Pixel vx vy vw vh i
             res.SpriteBatch.End()
 
-    // Title bar overlay
+    // Menu overlay between rounds
     if not gs.RoundActive then
+        let mz = menuZoomFor (float physW) (float physH)
+        let menuW, menuH = int (float physW / mz), int (float physH / mz)
         res.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied,
-                              SamplerState.PointClamp, null, null, null, xform)
-        let overlayColor = Color(0, 0, 0, 0xC0)
-        drawRect res.SpriteBatch res.Pixel 0 0 windowW windowH overlayColor
-
-        let cx = windowW / 2 - 200
-        let mutable y = windowH / 2 - 80
-
-        drawText res.SpriteBatch res.FontTexture "FsRocket" cx y Color.White 3
-        y <- y + 30
-
-        let levelName = match gs.Level with Some lv -> lv.Name | None -> "No Terrain"
-        let cpuText = if gs.CpuCount > 0 then $" | CPU: {gs.CpuCount}" else ""
-        drawText res.SpriteBatch res.FontTexture $"Level: {levelName} | Players: {gs.NumPlayers}{cpuText}" cx y (Color(0xC0, 0xC0, 0xC0)) 2
-        y <- y + 24
-
-        drawText res.SpriteBatch res.FontTexture "Press SPACE to start | 1-4: players | ESC: quit" cx y (Color(0xC0, 0xC0, 0xC0)) 1
-        y <- y + 12
-        drawText res.SpriteBatch res.FontTexture "F5: prev level | F6: next level | F7/F8: CPU players | F11: Full-screen" cx y (Color(0xC0, 0xC0, 0xC0)) 1
-        y <- y + 12
-        let weaponRule =
-            if gs.WeaponSwitchOnlyOnBase then "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): ONLY while landed on a base   [F9 to change]"
-            else "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): anytime   [F9 to require a base]"
-        drawText res.SpriteBatch res.FontTexture weaponRule cx y (Color(0x90, 0xC0, 0xFF)) 1
-        y <- y + 12
-        let respawnRule =
-            if gs.RespawnOnDeath then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
-            else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
-        drawText res.SpriteBatch res.FontTexture respawnRule cx y (Color(0x90, 0xC0, 0xFF)) 1
-        y <- y + 12
-        let gamepadRule =
-            if gs.GamepadsEnabled then "Gamepads: ON — pad N drives P-N, keyboard still works   [F10 to disable]"
-            else "Gamepads: OFF — keyboard only   [F10 to enable]"
-        drawText res.SpriteBatch res.FontTexture gamepadRule cx y (Color(0x90, 0xC0, 0xFF)) 1
-        y <- y + 20
-
-        drawText res.SpriteBatch res.FontTexture "Controls:" cx y (Color(0xFF, 0xFF, 0x80)) 1
-        y <- y + 12
-        drawText res.SpriteBatch res.FontTexture "P1 BLUE:   W/A/D = Thrust/Turn           Tab = Fire     S = Special  1/2 = Weapon" cx y Color.White 1
-        y <- y + 10
-        drawText res.SpriteBatch res.FontTexture "P2 GREEN:  Arrows/NumPad = Thrust/Turn  RShift = Fire  Down = Special  8/9 = Weapon" cx y Color.White 1
-        y <- y + 10
-        drawText res.SpriteBatch res.FontTexture "P3 RED:    T/F/H = Thrust/Turn             Y = Fire     G = Special  4/5 = Weapon" cx y Color.White 1
-        y <- y + 10
-        drawText res.SpriteBatch res.FontTexture "P4 YELLOW: I/J/L = Thrust/Turn             B = Fire     K = Special  6/7 = Weapon" cx y Color.White 1
-        y <- y + 10
-        drawText res.SpriteBatch res.FontTexture "Gamepad:   Stick/DPad = Turn  A = Thrust  B/RT = Fire  X/LT = Special  LB/RB = Weapon  Start = Begin" cx y (Color(0xA0, 0xFF, 0xA0)) 1
-
+                              SamplerState.PointClamp, null, null, null, Matrix.CreateScale(float32 mz, float32 mz, 1.0f))
+        drawRect res.SpriteBatch res.Pixel 0 0 menuW menuH (Color(0, 0, 0, 0x90))
+        drawMenu res.SpriteBatch res (menuLayout gs view menuW menuH) view.Mouse
         res.SpriteBatch.End()
