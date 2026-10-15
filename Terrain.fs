@@ -165,6 +165,20 @@ let inline isPassable (pixel: byte) =
 let inline isIndestructible (pixel: byte) =
     isBase pixel
 
+/// Colour of the grey frame the maps draw along their edges.
+[<Literal>]
+let FrameColor = 0x07uy
+/// How far in from the map edge the frame reaches (2-3 px in the bundled maps,
+/// thicker in places).
+[<Literal>]
+let FrameDepth = 6
+
+/// Is this pixel the map's edge frame — "bedrock" that ammo can't erase,
+/// like the pads?
+let inline isFrame (x: int) (y: int) (pixel: byte) =
+    pixel = FrameColor
+    && (x < FrameDepth || y < FrameDepth || x >= MapWidth - FrameDepth || y >= MapHeight - FrameDepth)
+
 // ─── Spawn Point Scanning  ─────
 //
 // Scan rows 2..398, cols 0..319:
@@ -326,7 +340,7 @@ let inline setPixel (pixels: byte array) (x: int) (y: int) (value: byte) =
         pixels[y * MapWidth + x] <- value
 
 /// Erase terrain in a circle (paint black / VoidColor) around a point.
-/// Skips indestructible pixels (dark gray).
+/// Skips the pads and the map's edge frame.
 /// Returns true if any pixels were actually erased.
 let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: float) : bool =
     let ix = int (round cx)
@@ -341,7 +355,8 @@ let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: flo
                 let py = iy + dy
                 if px >= 0 && px < MapWidth && py >= 0 && py < MapHeight then
                     let existing = pixels[py * MapWidth + px]
-                    if existing <> VoidColor && existing <> WaterColor && not (isBase existing) then
+                    if existing <> VoidColor && existing <> WaterColor && not (isBase existing)
+                       && not (isFrame px py existing) then
                         pixels[py * MapWidth + px] <- VoidColor
                         erased <- true
     if erased then markDirty (ix - r) (iy - r) (ix + r) (iy + r)
