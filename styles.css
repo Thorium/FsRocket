@@ -120,7 +120,7 @@ body.touch:not(.playing) #touch-menu {
     display: flex;
 }
 
-#touch-menu {
+.game-menu {
     position: fixed;
     left: 50%;
     top: 50%;
@@ -138,14 +138,14 @@ body.touch:not(.playing) #touch-menu {
     border-radius: 8px;
 }
 
-#touch-menu h1 {
+.game-menu h1 {
     margin: 0;
     font-size: 22px;
     color: #fff;
     text-align: center;
 }
 
-#touch-menu button {
+.game-menu button {
     min-width: 44px;
     min-height: 40px;
     font-size: 16px;
@@ -155,11 +155,11 @@ body.touch:not(.playing) #touch-menu {
     border-radius: 6px;
 }
 
-#touch-menu button:active {
+.game-menu button:active {
     background: #2a3a58;
 }
 
-#touch-menu .tm-start {
+.game-menu .tm-start {
     min-height: 48px;
     font-size: 20px;
     font-weight: bold;
@@ -186,18 +186,18 @@ body.touch:not(.playing) #touch-menu {
     color: #ffff80;
 }
 
-#touch-menu .tm-toggle {
+.game-menu .tm-toggle {
     min-width: calc(7.5em + 104px);
     color: #90c0ff;
 }
 
 /* Two-way choice (players): the pair spans the same width as a toggle */
-#touch-menu .tm-choice {
+.game-menu .tm-choice {
     min-width: calc((7.5em + 104px - 8px) / 2);
     color: #c8c8d0;
 }
 
-#touch-menu .tm-choice.selected {
+.game-menu .tm-choice.selected {
     color: #ffff80;
     border-color: #ffff80;
     background: #2a2a18;
@@ -441,28 +441,182 @@ body.can-install .rotate-install, body.iphone-tab .rotate-ios {
 
 /* The menu scrolls itself when it is taller than the screen (the page can't:
    body has touch-action: none) */
-#touch-menu {
+.game-menu {
     touch-action: pan-y;
 }
 
 /* Short landscape screens, e.g. an iPhone with Safari's bars showing */
 @media (max-height: 420px) {
-    #touch-menu {
+    .game-menu {
         gap: 4px;
         padding: 6px 12px 8px;
     }
 
-    #touch-menu h1 {
+    .game-menu h1 {
         font-size: 16px;
     }
 
-    #touch-menu button {
+    .game-menu button {
         min-height: 32px;
         font-size: 14px;
     }
 
-    #touch-menu .tm-start {
+    .game-menu .tm-start {
         min-height: 38px;
         font-size: 16px;
     }
+}
+
+/* ─── Desktop menu (not body.touch): the tap menu's layout, clickable with the
+   mouse, each control labelled with its keyboard shortcut, plus the desktop
+   extras (3-4 players, gamepad toggle, map upload, controls). Program.fs fills
+   the [data-value] / [data-choice] fields for both menus. ─────────────────── */
+
+#desk-menu {
+    display: none;
+    min-width: min(560px, calc(100vw - 32px));
+}
+
+body:not(.touch):not(.playing) #desk-menu {
+    display: flex;
+}
+
+/* Desktop: the menu carries the keys and the upload, so the page hint goes */
+body:not(.touch) .hint {
+    display: none;
+}
+
+.game-menu button {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.game-menu button:hover {
+    border-color: #90c0ff;
+}
+
+.game-menu kbd {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-family: inherit;
+    font-size: 0.7em;
+    font-weight: normal;
+    color: #8c8ca0;
+    border: 1px solid #3a3a50;
+    border-radius: 3px;
+    vertical-align: middle;
+}
+
+.game-menu .tm-start kbd {
+    color: #2a3a58;
+    border-color: #2a3a58;
+}
+
+/* Four-way choice (players 1-4) in the space of a toggle */
+#desk-menu .tm-choice {
+    min-width: calc((7.5em + 104px - 24px) / 4);
+}
+
+#desk-menu .upload {
+    align-self: center;
+}
+
+.dm-controls {
+    width: 100%;
+    margin-top: 4px;
+    border-collapse: collapse;
+    font-size: 12px;
+    color: #c8c8d0;
+}
+
+.dm-controls th {
+    font-weight: normal;
+    color: #8c8ca0;
+    text-align: left;
+    padding: 2px 6px;
+}
+
+.dm-controls td {
+    padding: 2px 6px;
+    border-top: 1px solid #2a2a3a;
+}
+
+.dm-p1 { color: rgb(95, 95, 255); }
+.dm-p2 { color: rgb(63, 207, 63); }
+.dm-p3 { color: rgb(255, 63, 63); }
+.dm-p4 { color: rgb(255, 255, 63); }
+
+.dm-footer {
+    margin: 2px 0 0;
+    font-size: 12px;
+    text-align: center;
+    color: #8c8ca0;
+}
+
+/* ─── Weapon choice dialog (Weapon switch: Game start): replaces either menu
+   while body.choosing is set by Program.fs ─────────────────────────────── */
+
+#weapon-dialog {
+    display: none;
+    min-width: min(420px, calc(100vw - 32px));
+}
+
+body.choosing:not(.playing) #weapon-dialog {
+    display: flex;
+}
+
+body.choosing #touch-menu, body.choosing #desk-menu {
+    display: none !important;
+}
+
+#weapon-dialog .tm-starts {
+    gap: 8px;
+}
+
+#weapon-dialog .tm-starts button {
+    flex: 1 1 0;
+}
+
+.wd-select {
+    min-width: 12em;
+    min-height: 40px;
+    font-family: inherit;
+    font-size: 15px;
+    color: #ffff80;
+    background: #1a1a28;
+    border: 1px solid #3a3a50;
+    border-radius: 6px;
+}
+
+/* Players without a ship this round (rows past the human count) */
+.wd-row.unused {
+    display: none;
+}
+
+/* Keyboard shortcuts mean nothing on a touch screen */
+body.touch .game-menu kbd {
+    display: none;
+}
+
+/* ─── Keys & controls dialog (desktop), opened from the menu ─────────────── */
+
+#keys-dialog {
+    display: none;
+    min-width: min(560px, calc(100vw - 32px));
+}
+
+body.show-keys:not(.touch):not(.playing):not(.choosing) #keys-dialog {
+    display: flex;
+}
+
+body.show-keys #desk-menu {
+    display: none !important;
+}
+
+#keys-dialog .dm-controls {
+    font-size: 14px;
+}
+
+.dm-keys-button {
+    align-self: center;
 }

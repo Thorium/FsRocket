@@ -125,8 +125,6 @@ let private bigFont = "bold 20px Consolas, monospace"
 let private titleFont = "bold 26px Consolas, monospace"
 [<Literal>]
 let private subFont = "13px Consolas, monospace"
-[<Literal>]
-let private keyFont = "12px Consolas, monospace"
 
 // ─── Mid-level draw helpers ──────────────────────────────────────────────
 let private fillCircle ctx cx cy r color =
@@ -593,10 +591,10 @@ let drawBorder (ctx: obj) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
     strokeRectJs ctx (float vx + 1.0) (float vy + 1.0) (float vw - 2.0) (float vh - 2.0)
 
 // ─── Render full frame ─────────────────────────────────────────────────
-/// `views` is how many players get a viewport (players 0..views-1); `textMenu`
-/// draws the keyboard help over the dimmed menu backdrop (the touch layout has
-/// its own HTML menu instead); `paused` dims a live round with a PAUSED banner.
-let renderFrame (ctx: obj) (gs: GameState) (views: int) (textMenu: bool) (paused: bool) (windowW: int) (windowH: int) =
+/// `views` is how many players get a viewport (players 0..views-1); `paused`
+/// dims a live round with a PAUSED banner. Between rounds the frame is only
+/// dimmed: the menu itself is HTML (index.html).
+let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (windowW: int) (windowH: int) =
     setSmoothing ctx false
     setBaseline ctx "top"
     fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
@@ -624,45 +622,3 @@ let renderFrame (ctx: obj) (gs: GameState) (views: int) (textMenu: bool) (paused
 
     if not gs.RoundActive then
         fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 192)
-    if not gs.RoundActive && textMenu then
-        let cx = float (windowW / 2 - 230)
-        let mutable y = float (windowH / 2 - 90)
-        drawText ctx "FsRocket" cx y titleFont "rgb(255,255,255)"
-        y <- y + 34.0
-        let levelName = match gs.Level with Some lv -> lv.Name | None -> "No Terrain"
-        let cpuText = if gs.CpuCount > 0 then $"  |  CPU: {gs.CpuCount}" else ""
-        drawText ctx $"Level: {levelName}  |  Players: {gs.NumPlayers}{cpuText}" cx y subFont "rgb(192,192,192)"
-        y <- y + 24.0
-        drawText ctx "Press SPACE to start  |  1-4: players  |  ESC: reset" cx y subFont "rgb(192,192,192)"
-        y <- y + 18.0
-        drawText ctx "F5/F6: level   F7/F8: CPU players" cx y subFont "rgb(192,192,192)"
-        y <- y + 18.0
-        let weaponRule =
-            if gs.WeaponSwitchOnlyOnBase
-            then "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): ONLY while landed on a base   [F9 to change]"
-            else "Weapon switch (P1=1/2 P2=8/9 P3=4/5 P4=6/7): anytime   [F9 to require a base]"
-        drawText ctx weaponRule cx y subFont "rgb(144,192,255)"
-        y <- y + 18.0
-        let respawnRule =
-            if gs.RespawnOnDeath
-            then "Respawn on death: YES — destroyed ships return after a short delay   [F4 to change]"
-            else "Respawn on death: NO — destroyed ships stay dead, last ship flying wins   [F4 to change]"
-        drawText ctx respawnRule cx y subFont "rgb(144,192,255)"
-        y <- y + 18.0
-        let gamepadRule =
-            if gs.GamepadsEnabled
-            then "Gamepads: ON — pad N drives P-N, keyboard still works   [F10 to disable]"
-            else "Gamepads: OFF — keyboard only   [F10 to enable]"
-        drawText ctx gamepadRule cx y subFont "rgb(144,192,255)"
-        y <- y + 28.0
-        drawText ctx "Controls:" cx y subFont "rgb(255,255,128)"
-        y <- y + 18.0
-        drawText ctx "P1: W/A/D = Thrust/Turn   Tab = Fire   S = Special   1/2 = Weapon" cx y keyFont "rgb(255,255,255)"
-        y <- y + 15.0
-        drawText ctx "P2: Arrows/NumPad = Thrust/Turn   RShift = Fire   Down = Special   8/9 = Weapon" cx y keyFont "rgb(255,255,255)"
-        y <- y + 15.0
-        drawText ctx "P3: T/F/H = Thrust/Turn   Y = Fire   G = Special   4/5 = Weapon" cx y keyFont "rgb(255,255,255)"
-        y <- y + 15.0
-        drawText ctx "P4: I/J/L = Thrust/Turn   B = Fire   K = Special   6/7 = Weapon" cx y keyFont "rgb(255,255,255)"
-        y <- y + 15.0
-        drawText ctx "Gamepad: Stick/DPad = Turn   A = Thrust   B/RT = Fire   X/LT = Special   LB/RB = Weapon   Start = Begin" cx y keyFont "rgb(160,255,160)"

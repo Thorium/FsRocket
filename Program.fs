@@ -211,6 +211,9 @@ let private bundledLevels =
     [ "HUNAJA"; "JAATIKKO"; "KARKKI"; "KIERTO"; "KORALLI"
       "NEBULA"; "SIENI"; "TEHDAS"; "TULIVUOR"; "VIIDAKKO" ]
 
+/// The level the game opens on: wide open space, gentle for new pilots.
+let private startLevel = "VIIDAKKO"
+
 let private loadBundledLevels () =
     async {
         for name in bundledLevels do
@@ -220,8 +223,10 @@ let private loadBundledLevels () =
                     let! buf = fetchArrayBuffer (assetUrl (name + ".LEV")) |> Async.AwaitPromise
                     addLevel (loadLevelFromBytes name (toBytes buf)) false
                 with _ -> ()
-        // addLevel activates the most recently added map; start on the first.
-        if not hasUserLevels && levels.Count > 0 then activate 0
+        // addLevel activates the most recently added map; start on startLevel
+        // (or the first map, if it failed to load).
+        if not hasUserLevels && levels.Count > 0 then
+            activate (max 0 (levels.FindIndex(fun l -> l.Data.Name = startLevel)))
     }
     |> Async.StartImmediate
 
@@ -242,13 +247,18 @@ let private switchLevel (delta: int) =
     if levels.Count > 0 then
         activate (((current + delta) % levels.Count + levels.Count) % levels.Count)
 
-/// Cycle a player's special weapon. During a live round this is only allowed
-/// while the ship is parked on a base (unless the F9 rule is toggled off).
+/// Whether a ship may switch its special right now (the F9 rule).
+let private canSwitchWeapon (p: Player) =
+    match gs.WeaponSwitch with
+    | Anytime -> true
+    | OnlyOnBase -> not gs.RoundActive || p.OnBase
+    | OnlyAtStart -> not gs.RoundActive
+
+/// Cycle a player's special weapon, when the F9 rule allows it.
 let private cycleWeapon (playerIdx: int) (dir: int) =
     if playerIdx < gs.NumPlayers then
         let p = gs.Players[playerIdx]
-        let allowed = (not (gs.WeaponSwitchOnlyOnBase && gs.RoundActive)) || p.OnBase
-        if allowed then
+        if canSwitchWeapon p then
             let len = weapons.Length
             let mutable wt = (int p.SpecialWeapon + dir + len) % len
             let mutable guard = 0
@@ -260,6 +270,57 @@ let private cycleWeapon (playerIdx: int) (dir: int) =
             let np = { p with SpecialWeapon = enum<WeaponType> wt; SpecialReloadTimer = 0
                               Flags = p.Flags &&& ~~~PlayerFlags.Magno }
             gs <- { gs with Players = gs.Players |> List.mapi (fun i pl -> if i = playerIdx then np else pl) }
+
+// ─── Weapon choice before the round (F9 rule: Game start) ───────────────────
+// START opens a dialog where each human picks a special, or Random; the round
+// then begins with those weapons and nobody switches until it ends.
+
+/// A weapon choice: Random, or the int value of a WeaponType.
+[<Literal>]
+let private RandomWeapon = -1
+
+/// The dialog's options in order: Random, then every special weapon.
+let private weaponChoiceOptions = Array.append [| RandomWeapon |] (specialWeaponPool |> Array.map int)
+
+/// Each player's choice, kept between rounds.
+let private weaponChoices = Array.create 4 RandomWeapon
+let mutable private choosingWeapons = false
+/// The desktop Keys & controls dialog is open.
+let mutable private showingKeys = false
+
+let private humanPlayers () = gs.NumPlayers - gs.CpuCount
+
+/// Step a player's choice through the options (their weapon keys / LB, RB).
+let private cycleChoice (playerIdx: int) (dir: int) =
+    if playerIdx < humanPlayers () then
+        let n = weaponChoiceOptions.Length
+        let i = max 0 (Array.IndexOf(weaponChoiceOptions, weaponChoices[playerIdx]))
+        weaponChoices[playerIdx] <- weaponChoiceOptions[(i + dir + n) % n]
+
+/// Start the round; under the Game start rule, arm each human with their
+/// choice (Random draws one now).
+let private beginRound () =
+    choosingWeapons <- false
+    resetActiveTerrain ()   // reset ammo damage before the round
+    gs <- initRound gs
+    if gs.WeaponSwitch = OnlyAtStart then
+        let players =
+            gs.Players
+            |> List.mapi (fun i p ->
+                if i < gs.NumPlayers && not p.IsCpu then
+                    let wt =
+                        if weaponChoices[i] = RandomWeapon then randomSpecialWeapon gs.Rng p.SpecialWeapon
+                        else enum<WeaponType> weaponChoices[i]
+                    { p with SpecialWeapon = wt }
+                else p)
+        gs <- { gs with Players = players }
+
+/// START (Space, a pad's Start, the START buttons): under the Game start rule
+/// it opens the weapon dialog first, and from the dialog it begins the round.
+let private startPressed () =
+    if not gs.RoundActive then
+        if choosingWeapons || gs.WeaponSwitch <> OnlyAtStart || humanPlayers () = 0 then beginRound ()
+        else choosingWeapons <- true
 
 // ─── Gamepads ───────────────────────────────────────────────────────────────
 // Connected gamepads claim human player slots in order: pad 1 drives P1,
@@ -295,11 +356,11 @@ let private pollPadButtons () =
         let start = padButton pad 9
         let (pw, pn, ps) = padPrev[i]
         let isHuman = i < gs.NumPlayers && not gs.Players[i].IsCpu
-        if isHuman && wPrev && not pw then cycleWeapon i -1
-        if isHuman && wNext && not pn then cycleWeapon i 1
+        let step dir = if choosingWeapons then cycleChoice i dir else cycleWeapon i dir
+        if isHuman && wPrev && not pw then step -1
+        if isHuman && wNext && not pn then step 1
         if start && not ps && not gs.RoundActive then
-            resetActiveTerrain ()   // reset ammo damage before the round
-            gs <- initRound gs
+            startPressed ()
             needsRender <- true
         padPrev[i] <- (wPrev, wNext, start)
 
@@ -357,21 +418,37 @@ let private mapInputs () =
                 else p)
     gs <- { gs with Players = players }
 
-/// One-shot action bound to a key code (menu toggles, level/player changes,
-/// starting a round, weapon cycling). Shared by key presses and touch taps.
-let private keyAction (code: string) =
-    needsRender <- true   // menu toggles/level switches change state between steps
+/// Keys while the weapon dialog is open: each player's weapon keys step their
+/// choice, Space starts the round, Escape goes back to the menu.
+let private weaponDialogKey (code: string) =
+    match code with
+    | "Space" -> beginRound ()
+    | "Escape" -> choosingWeapons <- false
+    | "Digit1" -> cycleChoice 0 -1
+    | "Digit2" -> cycleChoice 0 1
+    | "Digit8" -> cycleChoice 1 -1
+    | "Digit9" -> cycleChoice 1 1
+    | "Digit4" -> cycleChoice 2 -1
+    | "Digit5" -> cycleChoice 2 1
+    | "Digit6" -> cycleChoice 3 -1
+    | "Digit7" -> cycleChoice 3 1
+    | _ -> ()
+
+/// One-shot action bound to a key code in the menu or a round (menu toggles,
+/// level/player changes, starting a round, weapon cycling).
+let private menuKeyAction (code: string) =
     match code with
     | "Escape" ->
         paused <- false
+        showingKeys <- false
         if gs.RoundActive then gs <- { gs with RoundActive = false }
+    // Desktop Keys & controls dialog: its button or F1 toggles it
+    | "keys" | "F1" when not gs.RoundActive -> showingKeys <- not showingKeys
     // Touch PAUSE button (no keyboard key produces this code)
     | "pause" when gs.RoundActive -> paused <- not paused
     | "Space" ->
         paused <- false
-        if not gs.RoundActive then
-            resetActiveTerrain ()   // reset ammo damage before the round
-            gs <- initRound gs
+        startPressed ()
     // Player count — menu only (number keys double as weapon-switch in a live round)
     | "Digit1" when not gs.RoundActive -> humanCount <- 1; applyPlayerCount ()
     | "Digit2" when not gs.RoundActive -> humanCount <- 2; applyPlayerCount ()
@@ -386,7 +463,13 @@ let private keyAction (code: string) =
     | "Digit5" when gs.RoundActive -> cycleWeapon 2 1
     | "Digit6" when gs.RoundActive -> cycleWeapon 3 (-1)
     | "Digit7" when gs.RoundActive -> cycleWeapon 3 1
-    | "F9" -> gs <- { gs with WeaponSwitchOnlyOnBase = not gs.WeaponSwitchOnlyOnBase }
+    | "F9" ->
+        let next =
+            match gs.WeaponSwitch with
+            | OnlyOnBase -> Anytime
+            | Anytime -> OnlyAtStart
+            | OnlyAtStart -> OnlyOnBase
+        gs <- { gs with WeaponSwitch = next }
     | "F10" -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
     // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
     | "F4" when not gs.RoundActive -> gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
@@ -395,6 +478,11 @@ let private keyAction (code: string) =
     | "F7" -> cpuCount <- max 0 (cpuCount - 1); applyPlayerCount ()
     | "F8" -> cpuCount <- min (4 - humanCount) (cpuCount + 1); applyPlayerCount ()
     | _ -> ()
+
+/// A key code's one-shot action (key presses, taps and clicks alike).
+let private keyAction (code: string) =
+    needsRender <- true   // menu toggles/level switches change state between steps
+    if choosingWeapons then weaponDialogKey code else menuKeyAction code
 
 /// Hold a key down: the held set feeds mapInputs, then the key's action runs.
 let private pressKey (code: string) =
@@ -541,31 +629,96 @@ let private syncPlayerControls () =
         setClass specialButtons[i] "unavailable" (not ready)
         setStyleVar specialButtons[i] "--charge" (string charge)
 
-let private menuLevel = getEl "tm-level"
-let private menuCpu = getEl "tm-cpu"
-let private menuRespawn = getEl "tm-respawn"
-let private menuBase = getEl "tm-base"
-let private menuOnePlayer = getEl "tm-p1"
-let private menuTwoPlayers = getEl "tm-p2"
+[<Emit("Array.from(document.querySelectorAll($0))")>]
+let private queryAll (selector: string) : obj[] = jsNative
+
+/// Menu fields (tap menu and desktop menu): each `data-value` element shows one
+/// setting, each `data-choice` button is selected when it matches.
+let private menuValueFields = queryAll "[data-value]"
+let private menuChoiceButtons = queryAll "[data-choice]"
 let mutable private shownPlaying = false
 
-/// Mirror game state into the touch menu labels and the body.playing class
-/// (which swaps menu ↔ controls). Called after each rendered frame and tap.
-let private syncTouchUi () =
+let private menuValue (name: string) =
+    match name with
+    | "level" -> match gs.Level with Some lv -> lv.Name | None -> "No terrain"
+    | "cpu" -> string cpuCount
+    | "respawn" -> if gs.RespawnOnDeath then "ON" else "OFF"
+    | "base" ->
+        match gs.WeaponSwitch with
+        | OnlyOnBase -> "On a base"
+        | Anytime -> "Anytime"
+        | OnlyAtStart -> "Game start"
+    | "gamepads" -> if gs.GamepadsEnabled then "ON" else "OFF"
+    | _ -> ""
+
+// Weapon dialog (index.html #weapon-dialog): a <select> per player, filled once
+// with Random and every special weapon; a pick there updates weaponChoices.
+[<Emit("$0.innerHTML = $1")>]
+let private setHtml (el: obj) (html: string) : unit = jsNative
+[<Emit("$0.value")>]
+let private selectValue (el: obj) : string = jsNative
+[<Emit("$0.value = $1")>]
+let private setSelectValue (el: obj) (value: string) : unit = jsNative
+
+let private weaponSelects = queryAll ".wd-select"
+let private weaponRows = queryAll ".wd-row"
+
+do
+    let optionsHtml =
+        weaponChoiceOptions
+        |> Array.map (fun v ->
+            let name = if v = RandomWeapon then "Random" else weapons[v].Name
+            $"<option value=\"{v}\">{name}</option>")
+        |> String.concat ""
+    for sel in weaponSelects do
+        setHtml sel optionsHtml
+
+let private onWeaponPicked (e: obj) =
+    let sel = evTarget e
+    match attr sel "data-player" with
+    | "" -> ()
+    | p -> weaponChoices[int p] <- int (selectValue sel)
+
+/// Show the dialog while choosing: one row per human, each on its choice.
+let private syncWeaponDialog () =
+    setClass (body ()) "choosing" choosingWeapons
+    if choosingWeapons then
+        weaponRows |> Array.iteri (fun i row -> setClass row "unused" (i >= humanPlayers ()))
+        weaponSelects
+        |> Array.iteri (fun i sel ->
+            let v = string weaponChoices[i]
+            if selectValue sel <> v then setSelectValue sel v)
+
+/// Touch WPN buttons dim while the F9 rule doesn't let that ship switch.
+let private weaponButtons =
+    [| queryAll ".tc-p1 [data-key=Digit1], .tc-p1 [data-key=Digit2]"
+       queryAll ".tc-p2 [data-key=Digit8], .tc-p2 [data-key=Digit9]" |]
+
+let private syncWeaponButtons () =
+    for i in 0 .. min 1 (humanCount - 1) do
+        let blocked = not (canSwitchWeapon gs.Players[i])
+        for b in weaponButtons[i] do
+            setClass b "unavailable" blocked
+
+/// Mirror game state into the menus and the body.playing class (which swaps
+/// menu ↔ round: the touch controls, or nothing over the desktop canvas).
+/// Called after each rendered frame and tap.
+let private syncMenuUi () =
+    syncWeaponDialog ()
+    setClass (body ()) "show-keys" showingKeys
+    if gs.RoundActive && touchMode then syncWeaponButtons ()
     if gs.RoundActive <> shownPlaying then
         shownPlaying <- gs.RoundActive
         setClass (body ()) "playing" gs.RoundActive
         if not gs.RoundActive then releaseAllTouches ()
     setClass (body ()) "paused" (gs.RoundActive && paused)
-    if gs.RoundActive then syncPlayerControls ()
+    if gs.RoundActive && touchMode then syncPlayerControls ()
     if not gs.RoundActive then
-        setText menuLevel (match gs.Level with Some lv -> lv.Name | None -> "No terrain")
-        setText menuCpu (string cpuCount)
-        setText menuRespawn (if gs.RespawnOnDeath then "ON" else "OFF")
-        setText menuBase (if gs.WeaponSwitchOnlyOnBase then "On a base" else "Anytime")
-        setClass menuOnePlayer "selected" (humanCount = 1)
-        setClass menuTwoPlayers "selected" (humanCount = 2)
-        // Split controls for 2+ humans (3-4 via a keyboard still get P1/P2 sets)
+        for el in menuValueFields do
+            setText el (menuValue (attr el "data-value"))
+        for el in menuChoiceButtons do
+            setClass el "selected" (attr el "data-choice" = $"players-{humanCount}")
+        // Split touch controls for 2+ humans (3-4 via a keyboard still get P1/P2 sets)
         setClass (body ()) "two-players" (humanCount >= 2)
 
 let private onTap (e: obj) =
@@ -574,9 +727,9 @@ let private onTap (e: obj) =
         let code = attr button "data-action"
         if code = "Escape" || code = "pause" then releaseAllTouches ()
         keyAction code
-        if code = "Space" then enterFullscreenLandscape ()
+        if code = "Space" && touchMode then enterFullscreenLandscape ()
         if code = "install" then promptInstall ()
-        syncTouchUi ()   // labels now, not on the next animation frame
+        syncMenuUi ()   // labels now, not on the next animation frame
         blurActive ()   // a focused button would also "click" on a keyboard Space
 
 // ─── Game loop (fixed 36 FPS step, rendered every animation frame) ──────────
@@ -604,8 +757,8 @@ let rec private loop (ts: float) =
     if needsRender then
         // Touch layout: viewports only for the humans, not the CPU ships
         let views = if touchMode then humanCount else gs.NumPlayers
-        renderFrame ctx gs views (not touchMode) paused viewW viewH
-        if touchMode then syncTouchUi ()
+        renderFrame ctx gs views paused viewW viewH
+        syncMenuUi ()
         if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
         needsRender <- false
     requestFrame loop
@@ -614,6 +767,10 @@ let rec private loop (ts: float) =
 onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
 onWindow "resize" (fun _ -> resizeCanvas ())
+// Menu buttons (tap menu and desktop menu)
+onDocument "click" onTap
+// Weapon dialog drop-downs
+onDocument "change" onWeaponPicked
 if touchMode then
     setClass (body ()) "touch" true
     setClass (body ()) "iphone-tab" (iPhoneBrowserTab ())
@@ -630,7 +787,6 @@ if touchMode then
     onDocument "pointermove" onPointerMove
     onDocument "pointerup" onPointerUp
     onDocument "pointercancel" onPointerUp
-    onDocument "click" onTap
     onDocument "contextmenu" preventDefault   // long-press menus
     // A backgrounded tab never delivers pointerup: drop every held key
     onWindow "blur" (fun _ -> releaseAllTouches (); keys.Clear())

@@ -18,48 +18,127 @@
 <body>
 <div id="root">
     <canvas id="screen" width="960" height="600" aria-label="FsRocket game screen" role="img"></canvas>
-    <p class="hint">
-        Press <b>SPACE</b> to start &middot; <b>1–4</b> players &middot;
-        <b>F5/F6</b> level &middot; <b>F7/F8</b> CPU &middot; <b>F9</b> weapon-on-base rule
-    </p>
-    <label class="upload" for="level-file">
-        Upload a .LEV map
-        <input accept=".LEV,.lev" id="level-file" type="file">
-    </label>
     <a class="github-link" href="https://github.com/" rel="noopener noreferrer" target="_blank">FsRocket — F# + Fable</a>
 </div>
 
 <!-- Touch layout (body.touch): tap menu between rounds, controls during one.
      data-action buttons run the matching key's menu action once per tap;
      data-key buttons hold that key while a finger is on them. -->
-<div id="touch-menu">
+<div class="game-menu" id="touch-menu">
     <h1>FsRocket</h1>
     <button class="tm-start" data-action="Space" type="button">START</button>
     <div class="tm-row">
         <span class="tm-label">Players</span>
-        <button class="tm-choice" data-action="Digit1" id="tm-p1" type="button">1 player</button>
-        <button class="tm-choice" data-action="Digit2" id="tm-p2" type="button">2 players</button>
+        <button class="tm-choice" data-action="Digit1" data-choice="players-1" type="button">1 player</button>
+        <button class="tm-choice" data-action="Digit2" data-choice="players-2" type="button">2 players</button>
     </div>
     <div class="tm-row">
         <span class="tm-label">Level</span>
         <button data-action="F5" type="button" aria-label="Previous level">◀</button>
-        <span class="tm-value" id="tm-level">…</span>
+        <span class="tm-value" data-value="level">…</span>
         <button data-action="F6" type="button" aria-label="Next level">▶</button>
     </div>
     <div class="tm-row">
         <span class="tm-label">CPU ships</span>
         <button data-action="F7" type="button" aria-label="Fewer CPU ships">−</button>
-        <span class="tm-value" id="tm-cpu">1</span>
+        <span class="tm-value" data-value="cpu">1</span>
         <button data-action="F8" type="button" aria-label="More CPU ships">+</button>
     </div>
     <div class="tm-row">
         <span class="tm-label">Respawn</span>
-        <button class="tm-toggle" data-action="F4" id="tm-respawn" type="button">ON</button>
+        <button class="tm-toggle" data-action="F4" data-value="respawn" type="button">ON</button>
     </div>
     <div class="tm-row">
         <span class="tm-label">Weapon switch</span>
-        <button class="tm-toggle" data-action="F9" id="tm-base" type="button">On a base</button>
+        <button class="tm-toggle" data-action="F9" data-value="base" type="button">On a base</button>
     </div>
+</div>
+
+<!-- Desktop layout (not body.touch): the same menu for the mouse, each control
+     showing its keyboard shortcut, plus 3-4 players, gamepads, map upload and
+     the keys of every player -->
+<div class="game-menu" id="desk-menu">
+    <h1>FsRocket</h1>
+    <button class="tm-start" data-action="Space" type="button">START <kbd>Space</kbd></button>
+    <div class="tm-row">
+        <span class="tm-label">Players <kbd>1–4</kbd></span>
+        <button class="tm-choice" data-action="Digit1" data-choice="players-1" type="button">1</button>
+        <button class="tm-choice" data-action="Digit2" data-choice="players-2" type="button">2</button>
+        <button class="tm-choice" data-action="Digit3" data-choice="players-3" type="button">3</button>
+        <button class="tm-choice" data-action="Digit4" data-choice="players-4" type="button">4</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Level</span>
+        <button data-action="F5" type="button" aria-label="Previous level">◀<kbd>F5</kbd></button>
+        <span class="tm-value" data-value="level">…</span>
+        <button data-action="F6" type="button" aria-label="Next level"><kbd>F6</kbd>▶</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">CPU ships</span>
+        <button data-action="F7" type="button" aria-label="Fewer CPU ships">−<kbd>F7</kbd></button>
+        <span class="tm-value" data-value="cpu">0</span>
+        <button data-action="F8" type="button" aria-label="More CPU ships"><kbd>F8</kbd>+</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Respawn on death</span>
+        <button class="tm-toggle" data-action="F4" type="button"><span data-value="respawn">ON</span><kbd>F4</kbd></button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Weapon switch</span>
+        <button class="tm-toggle" data-action="F9" type="button"><span data-value="base">On a base</span><kbd>F9</kbd></button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Gamepads</span>
+        <button class="tm-toggle" data-action="F10" type="button"><span data-value="gamepads">ON</span><kbd>F10</kbd></button>
+    </div>
+    <label class="upload" for="level-file">
+        Upload a .LEV map
+        <input accept=".LEV,.lev" id="level-file" type="file">
+    </label>
+    <button class="dm-keys-button" data-action="keys" type="button">Keys &amp; controls <kbd>F1</kbd></button>
+</div>
+
+<!-- Desktop: every player's keys, opened from the menu (Keys & controls / F1) -->
+<div class="game-menu" id="keys-dialog">
+    <h1>Keys &amp; controls</h1>
+    <table class="dm-controls">
+        <tr><th></th><th>Thrust · Turn</th><th>Fire</th><th>Special</th><th>Weapon</th></tr>
+        <tr><td class="dm-p1">P1</td><td>W · A D</td><td>Tab</td><td>S</td><td>1 / 2</td></tr>
+        <tr><td class="dm-p2">P2</td><td>↑ · ← → (NumPad)</td><td>RShift / Enter</td><td>↓</td><td>8 / 9</td></tr>
+        <tr><td class="dm-p3">P3</td><td>T · F H</td><td>Y</td><td>G</td><td>4 / 5</td></tr>
+        <tr><td class="dm-p4">P4</td><td>I · J L</td><td>B</td><td>K</td><td>6 / 7</td></tr>
+        <tr><td>Pad</td><td>A · Stick / D-pad</td><td>B / RT</td><td>X / LT</td><td>LB / RB</td></tr>
+    </table>
+    <p class="dm-footer">Esc: back to the menu · F11: fullscreen · pad Start: begin the round</p>
+    <button data-action="keys" type="button">CLOSE <kbd>Esc</kbd></button>
+</div>
+
+<!-- Weapon choice before the round (Weapon switch: Game start), opened by
+     START from either menu. Program.fs fills the options (Random first, then
+     every special weapon) and shows a row per human player. -->
+<div class="game-menu" id="weapon-dialog">
+    <h1>Choose your weapon</h1>
+    <div class="tm-row wd-row">
+        <span class="tm-label"><span class="dm-p1">Player 1</span><kbd>1 / 2</kbd></span>
+        <select class="wd-select" data-player="0" aria-label="Player 1 weapon"></select>
+    </div>
+    <div class="tm-row wd-row">
+        <span class="tm-label"><span class="dm-p2">Player 2</span><kbd>8 / 9</kbd></span>
+        <select class="wd-select" data-player="1" aria-label="Player 2 weapon"></select>
+    </div>
+    <div class="tm-row wd-row">
+        <span class="tm-label"><span class="dm-p3">Player 3</span><kbd>4 / 5</kbd></span>
+        <select class="wd-select" data-player="2" aria-label="Player 3 weapon"></select>
+    </div>
+    <div class="tm-row wd-row">
+        <span class="tm-label"><span class="dm-p4">Player 4</span><kbd>6 / 7</kbd></span>
+        <select class="wd-select" data-player="3" aria-label="Player 4 weapon"></select>
+    </div>
+    <div class="tm-row tm-starts">
+        <button data-action="Escape" type="button">BACK <kbd>Esc</kbd></button>
+        <button class="tm-start" data-action="Space" type="button">START ROUND <kbd>Space</kbd></button>
+    </div>
+    <p class="dm-footer">Random draws a weapon when the round starts. Weapons can't be switched during the round.</p>
 </div>
 
 <div id="touch-controls">

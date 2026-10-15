@@ -53,7 +53,7 @@ let createGameState (numPlayers: int) : GameState =
       Level = None
       LevelFilePath = ""
       TerrainDirty = false
-      WeaponSwitchOnlyOnBase = true
+      WeaponSwitch = OnlyOnBase
       RespawnOnDeath = true
       GamepadsEnabled = true }
 
