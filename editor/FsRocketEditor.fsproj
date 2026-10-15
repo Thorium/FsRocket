@@ -17,6 +17,8 @@
     <Compile Include="..\Terrain.fs" />
     <!-- Editor-only sources. -->
     <Compile Include="EditorCore.fs" />
+    <Compile Include="LevelCheck.fs" />
+    <Compile Include="EditorCli.fs" />
     <Compile Include="EditorForm.fs" />
   </ItemGroup>
 

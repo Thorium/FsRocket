@@ -1,7 +1,8 @@
 /// FsRocket Level Editor — WinForms UI shell.
 /// Thin layer over FsRocketEditor.EditorCore (all real logic lives there and is
 /// unit-tested separately). Paints the 320x400 map scaled by an integer zoom,
-/// handles brush/fill/line/rect tools, image import and .LEV save/load.
+/// handles brush/fill/line/rect tools, image import and .LEV save/load, and
+/// shows the flyability check and runs the cleanup from LevelCheck.
 module FsRocketEditor.EditorForm
 
 open System
@@ -13,6 +14,7 @@ open System.Windows.Forms
 open FsRocket.Physics
 open FsRocket.Terrain
 open FsRocketEditor.EditorCore
+open FsRocketEditor.LevelCheck
 
 type Tool = Brush | Fill | Line | Rect
 
@@ -57,12 +59,35 @@ let private colorGuideText =
        Remember a base needs empty void just above it to become a spawn point."
 
 [<Literal>]
+let private goodLevelsText =
+    "GOOD LEVELS — room to fly\n\
+     ─────────────────────────\n\
+     A ship needs about 9 px (map pixels) of free space to turn. Narrower space\n\
+     looks like a tunnel but can't be flown — and a player may have no digging\n\
+     weapon. Check (C) colours what the ship can't use:\n\
+       red      pocket — enclosed space the ship can't enter\n\
+       yellow   slit — a dead end or corner too narrow to fly into\n\
+       cyan     narrow gap — the only way between two open areas, too tight\n\
+       magenta  small sealed cave — open space with no pad and no way in\n\
+       orange   speck — a loose bit of wall a few pixels big\n\
+       white    under a pad — no ship-sized route to the other pads\n\
+     The ring at the cursor is the ship's turning room.\n\n\
+     Clean up (Ctrl+K) fixes them: fills pockets, slits and small caves (copying\n\
+     the nearby terrain's texture), widens the narrow gaps, tunnels to cut-off\n\
+     pads and removes specks; optionally it also trims thin spikes. Pads, the\n\
+     space just above them and the map's grey frame are never changed. Undo\n\
+     (Ctrl+Z) takes the whole cleanup back.\n\n\
+     Tips: prefer big terrain pieces over many small ones, keep thin outlined\n\
+     frames solid (or open them wide), and give every pad free sky above it."
+
+[<Literal>]
 let private controlsText =
     "TOOLS         B Brush   F Fill   L Line   R Rectangle\n\
      MATERIALS     1 Void    2 Wall   3 Water  4 Base\n\
      BRUSH SIZE    [  smaller     ]  larger\n\
      ZOOM          -  out         +  in\n\
      SPAWNS        G  toggle spawn-point preview\n\
+     CHECK         C  toggle the flyability check   Ctrl+K clean up\n\
      EDIT          Ctrl+Z undo   Ctrl+Y redo\n\
      FILE          Ctrl+N new    Ctrl+O open   Ctrl+S save\n\
      PUBLISH       Ctrl+P copy the saved level into the game's folder\n\n\
@@ -82,14 +107,14 @@ let private promptImport (owner: IWin32Window) : ImportOptions option =
                                 DropDownStyle = ComboBoxStyle.DropDownList)
     fitCombo.Items.AddRange([| "Stretch (distort to fill)"
                                "Fit (keep aspect, letterbox)"
-                               "Center (native size, centred)" |])
+                               "Center (native size, centred)" |] |> Array.map box)
     fitCombo.SelectedIndex <- 0
 
     let modeLabel = new Label(Text = "Colours:", Left = 12, Top = 52, Width = 100)
     let modeCombo = new ComboBox(Left = 130, Top = 49, Width = 228,
                                  DropDownStyle = ComboBoxStyle.DropDownList)
     modeCombo.Items.AddRange([| "Walls only — everything solid"
-                                "Keep colours — black/blue/green = void/water/base" |])
+                                "Keep colours — black/blue/green = void/water/base" |] |> Array.map box)
     modeCombo.SelectedIndex <- 0
 
     let keyInfo = new Label(Left = 12, Top = 82, Width = 356, Height = 48,
@@ -129,6 +154,41 @@ let private promptImport (owner: IWin32Window) : ImportOptions option =
         Some { Fit = fit; Colors = colors; VoidThreshold = th; KeyTolerance = int tolNud.Value }
     else None
 
+// ─── Clean-up options dialog ───────────────────────────────────────────────
+
+let private promptCleanup (owner: IWin32Window) : CleanupOptions option =
+    use dlg = new Form(Text = "Clean up level", FormBorderStyle = FormBorderStyle.FixedDialog,
+                       StartPosition = FormStartPosition.CenterParent,
+                       MinimizeBox = false, MaximizeBox = false,
+                       ClientSize = Size(400, 268))
+    let info = new Label(Left = 12, Top = 10, Width = 376, Height = 34, ForeColor = Color.DimGray,
+                         Text = "Makes the level flyable for a ship (about 9 px of turning room). "
+                                + "Pads, the space above them and the map frame are never changed.")
+    let box (text: string) top on = new CheckBox(Text = text, Left = 12, Top = top, Width = 376, Checked = on)
+    let fillChk = box "Fill pockets, dead-end slits and small sealed caves" 50 true
+    let widenChk = box "Widen too-narrow gaps between open areas" 76 true
+    let connectChk = box "Tunnel to pads no ship-sized route reaches" 102 true
+    let speckChk = box "Remove loose specks (20 px or less)" 128 true
+    let spikeChk = box "Trim thin wall spikes up to" 154 false
+    spikeChk.Width <- 200
+    let spikeNud = new NumericUpDown(Left = 216, Top = 152, Width = 50, Minimum = 1m, Maximum = 8m,
+                                     Value = 4m, Enabled = false)
+    let spikeUnit = new Label(Text = "px wide (x2+1)", Left = 272, Top = 156, Width = 110)
+    spikeChk.CheckedChanged.Add(fun _ -> spikeNud.Enabled <- spikeChk.Checked)
+    let ok = new Button(Text = "Clean up", Left = 208, Top = 222, Width = 86, DialogResult = DialogResult.OK)
+    let cancel = new Button(Text = "Cancel", Left = 302, Top = 222, Width = 86, DialogResult = DialogResult.Cancel)
+    dlg.Controls.AddRange([| info :> Control; fillChk; widenChk; connectChk; speckChk
+                             spikeChk; spikeNud; spikeUnit; ok; cancel |])
+    dlg.AcceptButton <- ok
+    dlg.CancelButton <- cancel
+    if dlg.ShowDialog(owner) = DialogResult.OK then
+        Some { FillDeadSpace = fillChk.Checked
+               WidenNarrowLinks = widenChk.Checked
+               ConnectPads = connectChk.Checked
+               RemoveSpecks = speckChk.Checked
+               SpikeRadius = (if spikeChk.Checked then int spikeNud.Value else 0) }
+    else None
+
 // ─── Read a source bitmap into a flat ARGB sampler ─────────────────────────
 
 let private bitmapSampler (src: Bitmap) : int * int * (int -> int -> int) =
@@ -164,6 +224,7 @@ type EditorForm() as this =
     let mutable brushRadius = 1      // brush diameter = 2*radius + 1
     let mutable zoom = 2
     let mutable showSpawns = false
+    let mutable showCheck = false
 
     // ── Interaction state ──
     let mutable painting = false
@@ -182,13 +243,18 @@ type EditorForm() as this =
     let mutable bmpBuf : int array = Array.empty   // reused scratch buffer for bitmap upload
     let mutable bmpDirty = true
     let mutable cachedSpawns : SpawnPoint array = [||]
+    // Check overlay: recomputed when the pixels changed and no stroke is running
+    let checkBmp = new Bitmap(MapWidth, MapHeight, PixelFormat.Format32bppArgb)
+    let mutable checkDirty = true
+    let mutable lastReport : Report voption = ValueNone
+    let mutable cursorPx = (-100, -100)
 
     // ── Controls ──
     let canvas = new CanvasPanel()
     let scroller = new Panel(Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(0x20,0x20,0x28))
     let statusStrip = new StatusStrip()
     let coordLabel = new ToolStripStatusLabel(Text = "x: -  y: -", AutoSize = false, Width = 120)
-    let infoLabel = new ToolStripStatusLabel(Text = "", Spring = true, TextAlign = ContentAlignment.MiddleLeft)
+    let infoLabel = new ToolStripStatusLabel(Text = "", TextAlign = ContentAlignment.MiddleLeft)
     let toolStrip = new ToolStrip()
     let menuStrip = new MenuStrip()
 
@@ -197,7 +263,9 @@ type EditorForm() as this =
     let matButtons = Dictionary<Material, ToolStripButton>()
     let sizeCombo = new ToolStripComboBox()
     let zoomLabel = new ToolStripLabel(Text = "Zoom 2x")
-    let spawnBtn = new ToolStripButton("Show spawns (G)", CheckOnClick = true)
+    let spawnBtn = new ToolStripButton("Spawns (G)", CheckOnClick = true)
+    let checkBtn = new ToolStripButton("Check (C)", CheckOnClick = true)
+    let checkLabel = new ToolStripStatusLabel(Text = "", Spring = true, TextAlign = ContentAlignment.MiddleRight)
 
     // ── Helpers ──
 
@@ -215,6 +283,7 @@ type EditorForm() as this =
 
     let refreshCanvas () =
         bmpDirty <- true
+        checkDirty <- true
         canvas.Invalidate()
 
     let resizeCanvas () =
@@ -263,6 +332,48 @@ type EditorForm() as this =
             if showSpawns then cachedSpawns <- findSpawnPoints pixels
             bmpDirty <- false
 
+    /// Run the check and redraw its overlay (between strokes: it takes a moment).
+    let updateCheck () =
+        if showCheck && checkDirty && not painting then
+            let r = check pixels
+            lastReport <- ValueSome r
+            let data = checkBmp.LockBits(Rectangle(0, 0, MapWidth, MapHeight),
+                                         ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb)
+            let strideInts = data.Stride / 4
+            let buf = Array.zeroCreate<int> (strideInts * MapHeight)
+            for y in 0 .. MapHeight - 1 do
+                for x in 0 .. MapWidth - 1 do
+                    match r.Problems[y * MapWidth + x] with
+                    | ValueSome p -> buf[y * strideInts + x] <- problemArgb p
+                    | ValueNone -> ()
+            Marshal.Copy(buf, 0, data.Scan0, buf.Length)
+            checkBmp.UnlockBits data
+            checkLabel.Text <- reportText r
+            checkDirty <- false
+
+    let setShowCheck on =
+        showCheck <- on
+        if not on then checkLabel.Text <- ""
+        checkDirty <- true
+        canvas.Invalidate()
+
+    /// Clean up the level (undoable) with the options the dialog picks.
+    let cleanUpLevel () =
+        match promptCleanup this with
+        | None -> ()
+        | Some opt ->
+            Cursor.Current <- Cursors.WaitCursor
+            let result = cleanup opt pixels
+            Cursor.Current <- Cursors.Default
+            if result.Pixels <> pixels then
+                pushUndo ()
+                pixels <- result.Pixels
+                refreshCanvas ()
+            let left = if result.CutOffPads > 0 then $"\n\n%d{result.CutOffPads} pads still have no ship-sized route." else ""
+            MessageBox.Show(
+                $"Filled %d{result.Filled} px, opened %d{result.Opened} px, %d{result.Tunnels} tunnels.%s{left}\n\nCtrl+Z undoes the cleanup.",
+                "Clean up level", MessageBoxButtons.OK, MessageBoxIcon.Information) |> ignore
+
     let confirmDiscard () =
         if not dirty then true
         else
@@ -309,22 +420,24 @@ type EditorForm() as this =
             undoList.Clear(); redoList.Clear()
             updateTitle (); refreshCanvas ()
 
+    let loadFromPath (path: string) =
+        try
+            let lv = loadLevel path
+            pixels <- lv.Pixels
+            viewports <- lv.Viewports
+            filePath <- path
+            levelName <- lv.Name
+            dirty <- false
+            undoList.Clear(); redoList.Clear()
+            updateTitle (); refreshCanvas ()
+        with ex ->
+            MessageBox.Show("Could not load level:\n" + ex.Message, "Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error) |> ignore
+
     let openLevel () =
         if confirmDiscard () then
             use dlg = new OpenFileDialog(Filter = "AUTS level (*.LEV)|*.LEV|All files (*.*)|*.*")
-            if dlg.ShowDialog(this) = DialogResult.OK then
-                try
-                    let lv = loadLevel dlg.FileName
-                    pixels <- lv.Pixels
-                    viewports <- lv.Viewports
-                    filePath <- dlg.FileName
-                    levelName <- lv.Name
-                    dirty <- false
-                    undoList.Clear(); redoList.Clear()
-                    updateTitle (); refreshCanvas ()
-                with ex ->
-                    MessageBox.Show("Could not load level:\n" + ex.Message, "Error",
-                                    MessageBoxButtons.OK, MessageBoxIcon.Error) |> ignore
+            if dlg.ShowDialog(this) = DialogResult.OK then loadFromPath dlg.FileName
 
     let saveToPath (path: string) =
         try
@@ -380,6 +493,13 @@ type EditorForm() as this =
     /// Save the current level (if needed) and copy it into the game's level folder
     /// so it shows up in the game. Asks for the folder the first time and remembers it.
     let publishToGame () =
+        // a level the ship can't fly everywhere asks first
+        let r = check pixels
+        let publish =
+            not (hasProblems r)
+            || MessageBox.Show(reportText r + "\n\nPublish anyway? (No = cancel, then Ctrl+K to clean up)",
+                               "Publish to game", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) = DialogResult.Yes
+        if not publish then () else
         saveCurrent ()                       // ensure latest edits are on disk
         if filePath = "" || dirty then ()    // user cancelled the save, or it failed
         else
@@ -456,14 +576,21 @@ type EditorForm() as this =
             mi "&Undo" (Keys.Control ||| Keys.Z) doUndo
             mi "&Redo" (Keys.Control ||| Keys.Y) doRedo
         |])
+        let levelMenu = new ToolStripMenuItem("&Level")
+        levelMenu.DropDownItems.AddRange([|
+            mi "&Check flyability (C)" Keys.None (fun () -> checkBtn.Checked <- not checkBtn.Checked)
+            mi "Clean &up..." (Keys.Control ||| Keys.K) cleanUpLevel
+        |])
         let helpMenu = new ToolStripMenuItem("&Help")
         helpMenu.DropDownItems.AddRange([|
             mi "&Colour guide / instructions" Keys.F1
                (fun () -> MessageBox.Show(colorGuideText, "Colour guide", MessageBoxButtons.OK, MessageBoxIcon.Information) |> ignore)
+            mi "&Good levels" Keys.None
+               (fun () -> MessageBox.Show(goodLevelsText, "Good levels", MessageBoxButtons.OK, MessageBoxIcon.Information) |> ignore)
             mi "&Controls" Keys.None
                (fun () -> MessageBox.Show(controlsText, "Controls", MessageBoxButtons.OK, MessageBoxIcon.Information) |> ignore)
         |])
-        menuStrip.Items.AddRange [| fileMenu :> ToolStripItem; editMenu :> ToolStripItem; helpMenu :> ToolStripItem |]
+        menuStrip.Items.AddRange [| fileMenu :> ToolStripItem; editMenu :> ToolStripItem; levelMenu :> ToolStripItem; helpMenu :> ToolStripItem |]
 
         // ── Tool strip ──
         addToolButton Brush "Brush (B)"
@@ -478,7 +605,7 @@ type EditorForm() as this =
         toolStrip.Items.Add(new ToolStripSeparator()) |> ignore
         toolStrip.Items.Add(new ToolStripLabel("Size")) |> ignore
         sizeCombo.DropDownStyle <- ComboBoxStyle.DropDownList
-        sizeCombo.Items.AddRange [| "1"; "3"; "5"; "7"; "9"; "15"; "25" |]
+        sizeCombo.Items.AddRange([| "1"; "3"; "5"; "7"; "9"; "15"; "25" |] |> Array.map box)
         sizeCombo.SelectedIndex <- 1   // diameter 3 -> radius 1
         sizeCombo.Width <- 50
         sizeCombo.SelectedIndexChanged.Add(fun _ ->
@@ -495,9 +622,11 @@ type EditorForm() as this =
         toolStrip.Items.Add(new ToolStripSeparator()) |> ignore
         spawnBtn.CheckedChanged.Add(fun _ -> showSpawns <- spawnBtn.Checked; refreshCanvas ())
         toolStrip.Items.Add spawnBtn |> ignore
+        checkBtn.CheckedChanged.Add(fun _ -> setShowCheck checkBtn.Checked)
+        toolStrip.Items.Add checkBtn |> ignore
 
         // ── Status strip ──
-        statusStrip.Items.AddRange [| coordLabel :> ToolStripItem; infoLabel :> ToolStripItem |]
+        statusStrip.Items.AddRange [| coordLabel :> ToolStripItem; infoLabel :> ToolStripItem; checkLabel :> ToolStripItem |]
 
         // ── Canvas ──
         canvas.Size <- Size(MapWidth * zoom, MapHeight * zoom)
@@ -505,7 +634,10 @@ type EditorForm() as this =
         canvas.MouseDown.Add this.OnCanvasMouseDown
         canvas.MouseMove.Add this.OnCanvasMouseMove
         canvas.MouseUp.Add this.OnCanvasMouseUp
-        canvas.MouseLeave.Add(fun _ -> coordLabel.Text <- "x: -  y: -")
+        canvas.MouseLeave.Add(fun _ ->
+            coordLabel.Text <- "x: -  y: -"
+            cursorPx <- (-100, -100)
+            if showCheck then canvas.Invalidate())
         scroller.Controls.Add canvas
 
         // ── Form composition (z-order: Fill first, then bottom, then top bars) ──
@@ -516,7 +648,7 @@ type EditorForm() as this =
         this.MainMenuStrip <- menuStrip
 
         this.Text <- "FsRocket Level Editor"
-        this.ClientSize <- Size(820, 720)
+        this.ClientSize <- Size(960, 720)
         this.KeyPreview <- true
         this.BackColor <- Color.FromArgb(0x20, 0x20, 0x28)
 
@@ -524,6 +656,9 @@ type EditorForm() as this =
         selectMaterial MWall
         updateInfo ()
         updateTitle ()
+
+    /// Open a level file (the editor's command-line argument).
+    member _.LoadFile(path: string) = loadFromPath path
 
     // ── Canvas painting ──
 
@@ -533,6 +668,16 @@ type EditorForm() as this =
         g.InterpolationMode <- Drawing2D.InterpolationMode.NearestNeighbor
         g.PixelOffsetMode <- Drawing2D.PixelOffsetMode.Half
         g.DrawImage(bmp, Rectangle(0, 0, MapWidth * zoom, MapHeight * zoom))
+
+        // Flyability check overlay and the ship's turning room at the cursor
+        if showCheck then
+            updateCheck ()
+            g.DrawImage(checkBmp, Rectangle(0, 0, MapWidth * zoom, MapHeight * zoom))
+            let (cx, cy) = cursorPx
+            let r = float32 ((float ShipRadius + 0.5) * float zoom)
+            let ccx, ccy = float32 (cx * zoom + zoom / 2), float32 (cy * zoom + zoom / 2)
+            use ring = new Pen(Color.FromArgb(0xD0, 120, 255, 140), 1.5f)
+            g.DrawEllipse(ring, ccx - r, ccy - r, 2.0f * r, 2.0f * r)
 
         // Spawn-point overlay
         if showSpawns then
@@ -585,6 +730,9 @@ type EditorForm() as this =
     member private _.OnCanvasMouseMove(e: MouseEventArgs) =
         let (px, py) = toPixel e
         coordLabel.Text <- $"x: %d{px}  y: %d{py}"
+        if showCheck && cursorPx <> (px, py) then
+            cursorPx <- (px, py)
+            if not painting then canvas.Invalidate()
         if painting then
             match tool with
             | Brush ->
@@ -630,6 +778,8 @@ type EditorForm() as this =
             brushRadius <- min 20 (brushRadius + 1); updateInfo ()
         | Keys.Oemplus | Keys.Add -> setZoom (zoom + 1)
         | Keys.OemMinus | Keys.Subtract -> setZoom (zoom - 1)
+        | Keys.C when not e.Control ->
+            checkBtn.Checked <- not checkBtn.Checked   // CheckedChanged shows / hides the check
         | Keys.G ->
             spawnBtn.Checked <- not spawnBtn.Checked   // CheckedChanged updates showSpawns + refreshes
         | _ -> ()
@@ -641,27 +791,36 @@ type EditorForm() as this =
 
     override _.OnFormClosed(e: FormClosedEventArgs) =
         bmp.Dispose()
+        checkBmp.Dispose()
         base.OnFormClosed e
 
 // ─── Headless image → .LEV converter (CLI) ─────────────────────────────────
 
 let private cliUsage () =
-    Console.WriteLine(
-        "FsRocketEditor — image to .LEV converter\n\n\
-         Usage:\n\
-        \  FsRocketEditor <input-image> <output.LEV> [fit] [colours] [caveThreshold]\n\n\
-         Arguments:\n\
-        \  input-image    .png/.bmp/.jpg/.gif to convert\n\
-        \  output.LEV     destination level file\n\
-        \  fit            stretch (default) | fit | center\n\
-        \  colours        solid (default) — everything becomes solid wall\n\
-        \                 keep          — black=void, #0099FF=water, #30C060=base,\n\
-        \                                 anything else = nearest solid wall colour\n\
-        \  caveThreshold  (solid only) 0-255: pixels darker than this become void\n\
-        \                 caves. Omit or use -1 to keep the whole image solid.\n\n\
-         With no arguments the graphical editor launches instead.\n\n\
-         Colours the game understands: void/sky = 0x00 (black), water = 0x27,\n\
-         base/landing-pad = 0x5C-0x5F, everything else = solid wall.")
+    [ "FsRocketEditor - image to .LEV converter"
+      ""
+      "Usage:"
+      "  FsRocketEditor <input-image> <output.LEV> [fit] [colours] [caveThreshold]"
+      ""
+      "Arguments:"
+      "  input-image    .png/.bmp/.jpg/.gif to convert"
+      "  output.LEV     destination level file"
+      "  fit            stretch (default) | fit | center"
+      "  colours        solid (default) - everything becomes solid wall"
+      "                 keep          - black=void, #0099FF=water, #30C060=base,"
+      "                                 anything else = nearest solid wall colour"
+      "  caveThreshold  (solid only) 0-255: pixels darker than this become void"
+      "                 caves. Omit or use -1 to keep the whole image solid."
+      ""
+      "With no arguments the graphical editor launches instead; with just a"
+      ".LEV file it opens that level."
+      ""
+      "Colours the game understands: void/sky = 0x00 (black), water = 0x27,"
+      "base/landing-pad = 0x5C-0x5F, everything else = solid wall."
+      ""
+      EditorCli.usage ]
+    |> String.concat "\n"
+    |> Console.WriteLine
 
 /// Convert an image to a .LEV file. Returns a process exit code.
 let convertImageToLev (input: string) (output: string) (fitArg: string)
@@ -705,8 +864,14 @@ let convertImageToLev (input: string) (output: string) (fitArg: string)
 
 // ─── Entry point ─────────────────────────────────────────────────────────
 
+/// A GUI exe has no console: with arguments, print into the one it was
+/// started from (piped output needs nothing).
+[<DllImport("kernel32.dll")>]
+extern bool private AttachConsole(int processId)
+
 [<STAThread; EntryPoint>]
 let main argv =
+    if argv.Length > 0 && not Console.IsOutputRedirected then AttachConsole -1 |> ignore
     match argv with
     | [||] ->
         Application.EnableVisualStyles()
@@ -715,6 +880,17 @@ let main argv =
         0
     | [| "-h" |] | [| "--help" |] | [| "/?" |] ->
         cliUsage (); 0
+    | _ when argv[0].StartsWith "--" ->
+        match EditorCli.tryRun argv with
+        | Some code -> code
+        | None -> cliUsage (); 2
+    | [| level |] when level.EndsWith(".LEV", StringComparison.OrdinalIgnoreCase) ->
+        Application.EnableVisualStyles()
+        Application.SetCompatibleTextRenderingDefault false
+        let form = new EditorForm()
+        form.LoadFile level
+        Application.Run form
+        0
     | [| input; output |] -> convertImageToLev input output "stretch" "solid" "-1"
     | [| input; output; fit |] -> convertImageToLev input output fit "solid" "-1"
     | [| input; output; fit; colours |] -> convertImageToLev input output fit colours "-1"

@@ -30,7 +30,7 @@ Two important consequences:
 - **Every colour that isn't `0x00`, `0x27`, or `0x5C–0x5F` is a wall.** That is why
   an imported photo becomes solid ground — all its colours read as wall.
 - **Spawn points are not stored** in the file. The game derives them at load time
-  from each **base** pixel that has **void directly above it**. Toggle **Show spawns**
+  from each **base** pixel that has **void directly above it**. Toggle **Spawns**
   (`G`) to preview exactly where ships will start as you paint pads.
 
 The editor renders bases with a fixed green bar (so pads are easy to spot), void as
@@ -59,7 +59,7 @@ Recommended workflow:
 2. **Carve** caves and tunnels with the **Void** brush (or right-click, which always
    paints Void).
 3. **Place landing pads** with the **Base** brush. Leave empty void just above each pad
-   so it registers as a spawn point (check with **Show spawns**).
+   so it registers as a spawn point (check with **Spawns**).
 4. Add **Water** where you want drag, then `File → Save`.
 
 ### 2. Keep colours — for levels you painted by hand
@@ -85,6 +85,36 @@ the key colours exactly.
 
 ---
 
+## Good levels: check and clean up
+
+A ship needs about **9 px** (map pixels) of free space to turn — its sprite reaches about
+4 px from its centre. Space narrower than that looks like a tunnel on screen but can't be
+flown, and a player may have no digging weapon to open it. Toggle **Check** (`C`, or
+`Level → Check flyability`) to colour what the ship can't use:
+
+| Colour   | Problem |
+|----------|---------|
+| red      | **pocket** — enclosed space the ship can't enter |
+| yellow   | **slit** — a dead end or corner too narrow to fly into |
+| cyan     | **narrow gap** — the only way between two open areas, too tight to pass |
+| magenta  | **small sealed cave** — open space with no pad and no way in |
+| orange   | **speck** — a loose bit of wall of 20 px or less |
+| white    | under a pad: **no ship-sized route** from it to the other pads |
+
+The status bar sums them up, and a green ring at the cursor shows the ship's turning room.
+
+`Level → Clean up…` (`Ctrl+K`) fixes them, the same way the bundled levels were cleaned:
+it fills pockets, slits and small caves (copying the nearby terrain's texture and outline
+colour), widens the narrow gaps, tunnels to cut-off pads through the thinnest wall and
+removes specks; optionally it also trims thin wall spikes. **Pads, the space just above
+them and the map's grey frame are never changed**, so spawn points stay where they were.
+`Ctrl+Z` takes the whole cleanup back. **Publish to game** warns when the check finds
+problems.
+
+Tips: prefer big terrain pieces over many small ones, keep thin outlined frames solid (or
+open them wide), and give every pad free sky above it. `Help → Good levels` has the same
+list in the editor.
+
 ## Command-line converter
 
 Run the editor with arguments to convert an image to a `.LEV` headlessly (no GUI),
@@ -108,7 +138,58 @@ dotnet run --project editor/FsRocketEditor.fsproj -- bricks.png CAVES.LEV stretc
 dotnet run --project editor/FsRocketEditor.fsproj -- mylevel.png MYLEVEL.LEV fit keep
 ```
 
-Run with `--help` for the full argument list.
+## Level commands (for scripts and agents)
+
+Every level tool also works from the command line, so a script or a coding agent can
+check, fix, look at and compare levels without the GUI. Each command takes one `.LEV`
+or a whole folder of them (a folder in writes a folder out, one file per level). Below,
+`ed` stands for `dotnet run --project editor/FsRocketEditor.fsproj --` or the built
+`FsRocketEditor.exe`.
+
+| Command | What it does |
+|---------|--------------|
+| `ed --check <level\|folder> [--json]` | What the ship can't fly, one line per level. `--json` lists every problem spot: kind, bounding box, centre and size in map pixels. |
+| `ed --clean <in> <out> [flags]` | Make the level flyable (as **Clean up** in the editor). Flags turn steps off — `--no-fill`, `--no-widen`, `--no-connect`, `--keep-specks` — or on: `--spikes <r>` trims wall spikes up to 2*r+1 px wide. |
+| `ed --render <level\|folder> <out.png\|folder> [--check] [--scale <n>]` | The level as a PNG (scale 1-8, default 2); `--check` adds the check overlay. |
+| `ed --compare <before> <after> <out.png\|folder> [--scale <n>]` | Before \| after \| changes side by side: green = new wall, red = opened. Folders pair levels by file name. |
+| `ed --clear <in.LEV> <out.LEV> <area>...` | Clear terrain for more flight space and tidy the cut (stubs, crumbs and slivers go, new edges get the outline colour; pads and the frame stay). An area is `rect:x0,y0,x1,y1` or `ellipse:x0,y0,x1,y1` in map pixels (0-319, 0-399). Run `--clean` afterwards to fill any new dead space. |
+
+**Exit codes:** `0` done, `1` the check found problems, `2` bad arguments or files.
+
+```
+# Which levels need work, and where exactly:
+ed --check levels --json > report.json
+
+# Clean them all into a new folder and look at what changed:
+ed --clean levels cleaned
+ed --compare levels cleaned review
+
+# Clear two spots in one level, then tidy what that leaves:
+ed --clear KORALLI.LEV KORALLI2.LEV ellipse:23,169,86,207 rect:122,177,150,210
+ed --clean KORALLI2.LEV KORALLI2.LEV
+```
+
+The `--json` report looks like this (one entry per level):
+
+```json
+[
+  {
+    "level": "KORALLI",
+    "flyable": false,
+    "pads": 4,
+    "cutOffPads": 1,
+    "counts": { "pockets": 12, "slits": 125, "narrowGaps": 4, "smallCaves": 1, "specks": 3 },
+    "problems": [
+      { "kind": "pocket", "x0": 66, "y0": 282, "x1": 74, "y1": 300, "centerX": 69, "centerY": 291, "pixels": 109 }
+    ]
+  }
+]
+```
+
+Problem kinds: `pocket`, `slit`, `narrow-gap`, `small-cave`, `speck`, `cut-off-pad`.
+
+With a single `.LEV` argument the editor opens that level in the GUI. Run with `--help`
+for the full argument list.
 
 ## Opening, saving & publishing to the game
 
@@ -141,6 +222,7 @@ The remembered game folder is stored in `FsRocketEditor.settings` next to the ed
 | Brush size   | `[` smaller · `]` larger                         |
 | Zoom         | `-` out · `+` in                                 |
 | Spawns       | `G` toggle spawn-point preview                   |
+| Check        | `C` toggle the flyability check · `Ctrl+K` clean up |
 | Undo / Redo  | `Ctrl+Z` / `Ctrl+Y`                              |
 | File         | `Ctrl+N` new · `Ctrl+O` open · `Ctrl+S` save     |
 | Publish      | `Ctrl+P` copy the level into the game's folder   |
@@ -164,3 +246,9 @@ default (`0, 0, 319, 399`) for brand-new maps.
 
 The compressor lives in `Terrain.fs` (`compressLevel` / `saveLevel`) as the exact
 inverse of the game's existing `decompressLevel`, and is covered by round-trip tests.
+
+The level check and cleanup (`LevelCheck.fs`) are covered by `editor/test-editor.fsx`:
+
+```
+dotnet fsi editor/test-editor.fsx [folder of .LEV files to clean]
+```
