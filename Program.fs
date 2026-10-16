@@ -169,6 +169,8 @@ type FsRocketGame() as this =
     let weaponChoices = Array.create 4 RandomWeapon
     let mutable choosingWeapons = false
     let mutable showingKeys = false
+    // Escape during a round asks first; the round waits while the prompt is up
+    let mutable confirmingQuit = false
 
     let totalPlayers () = min 4 (humanCount + cpuCount)
 
@@ -237,6 +239,7 @@ type FsRocketGame() as this =
         { HumanCount = humanCount
           ChoosingWeapons = choosingWeapons
           ShowingKeys = showingKeys
+          ConfirmingQuit = confirmingQuit
           WeaponChoices =
             weaponChoices |> Array.map (fun c -> if c = RandomWeapon then "Random" else weapons[c].Name)
           Mouse = mouseLogical }
@@ -301,7 +304,7 @@ type FsRocketGame() as this =
     member private this.MenuKeyAction(code: string) =
         match code with
         | "Escape" ->
-            if gs.RoundActive then gs <- { gs with RoundActive = false }
+            if gs.RoundActive then confirmingQuit <- true
             else this.Exit()
         | "Space" -> startPressed ()
         | "F11" -> this.ToggleFullScreen()
@@ -344,10 +347,23 @@ type FsRocketGame() as this =
         | "Digit7" -> gs <- cycleWeapon gs 3 1
         | _ -> ()
 
+    /// Keys while the "end the round?" prompt is up: Space ends it (the menu
+    /// opens), Escape goes back to the round. Space, not a player's fire key:
+    /// nothing else answers to Space during a round.
+    member private this.QuitPromptKey(code: string) =
+        match code with
+        | "Space" ->
+            confirmingQuit <- false
+            gs <- { gs with RoundActive = false }
+        | "Escape" -> confirmingQuit <- false
+        | "F11" -> this.ToggleFullScreen()
+        | _ -> ()
+
     /// A key code's one-shot action (key presses and menu clicks alike): the open
     /// dialog takes it first.
     member private this.KeyAction(code: string) =
-        if choosingWeapons then this.WeaponDialogKey code
+        if confirmingQuit then this.QuitPromptKey code
+        elif choosingWeapons then this.WeaponDialogKey code
         elif showingKeys then
             match code with
             | "Escape" | "F1" -> showingKeys <- false
@@ -374,7 +390,7 @@ type FsRocketGame() as this =
             int (float v * float physSize / float (max 1 clientSize) / zoom)
         mouseLogical <- Point(toLogical ms.X client.Width vp.Width, toLogical ms.Y client.Height vp.Height)
         let clicked = ms.LeftButton = ButtonState.Pressed && prevMouse.LeftButton = ButtonState.Released
-        if clicked && this.IsActive && not gs.RoundActive then
+        if clicked && this.IsActive && (not gs.RoundActive || confirmingQuit) then
             let w, h = int (float (max 1 vp.Width) / zoom), int (float (max 1 vp.Height) / zoom)
             match menuHit (menuLayout gs (menuView ()) w h) mouseLogical with
             | Some action -> this.KeyAction action
@@ -448,7 +464,7 @@ type FsRocketGame() as this =
 
         gs <- { gs with Players = players }
 
-        if gs.RoundActive then
+        if gs.RoundActive && not confirmingQuit then
             gs <- gameTick gs
 
         prevKeyState <- currKeyState
