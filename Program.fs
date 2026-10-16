@@ -218,6 +218,8 @@ type GameForm() as this =
     let weaponChoices = Array.create 4 RandomWeapon
     let mutable choosingWeapons = false
     let mutable showingKeys = false
+    // Escape during a round asks first; the round waits while the prompt is up
+    let mutable confirmingQuit = false
 
     // Previous LB/RB/Start state per pad slot, for edge-triggered actions
     // (weapon cycling and starting a round fire once per press, not per tick).
@@ -292,6 +294,7 @@ type GameForm() as this =
         { HumanCount = humanCount
           ChoosingWeapons = choosingWeapons
           ShowingKeys = showingKeys
+          ConfirmingQuit = confirmingQuit
           WeaponChoices =
             weaponChoices |> Array.map (fun c -> if c = RandomWeapon then "Random" else weapons[c].Name)
           Mouse = mouseLogical }
@@ -353,7 +356,7 @@ type GameForm() as this =
     member private _.MenuKeyAction(code: string) =
         match code with
         | "Escape" ->
-            if gs.RoundActive then gs <- { gs with RoundActive = false }
+            if gs.RoundActive then confirmingQuit <- true
             else Application.Exit()
         | "Space" -> startPressed ()
         | "F11" -> toggleFullscreen ()
@@ -398,10 +401,23 @@ type GameForm() as this =
         | "Digit7" -> gs <- cycleWeapon gs 3 1
         | _ -> ()
 
+    /// Keys while the "end the round?" prompt is up: Space ends it (the menu
+    /// opens), Escape goes back to the round. Space, not a player's fire key:
+    /// nothing else answers to Space during a round.
+    member private _.QuitPromptKey(code: string) =
+        match code with
+        | "Space" ->
+            confirmingQuit <- false
+            gs <- { gs with RoundActive = false }
+        | "Escape" -> confirmingQuit <- false
+        | "F11" -> toggleFullscreen ()
+        | _ -> ()
+
     /// A key code's one-shot action (key presses and menu clicks alike): the open
     /// dialog takes it first.
     member private this.KeyAction(code: string) =
-        if choosingWeapons then this.WeaponDialogKey code
+        if confirmingQuit then this.QuitPromptKey code
+        elif choosingWeapons then this.WeaponDialogKey code
         elif showingKeys then
             match code with
             | "Escape" | "F1" -> showingKeys <- false
@@ -433,7 +449,7 @@ type GameForm() as this =
 
     // Menu clicks run the action of the button under the mouse
     override this.OnMouseDown(e: MouseEventArgs) =
-        if e.Button = MouseButtons.Left && not gs.RoundActive then
+        if e.Button = MouseButtons.Left && (not gs.RoundActive || confirmingQuit) then
             let mz = menuZoomFor (float (max 1 this.ClientSize.Width)) (float (max 1 this.ClientSize.Height))
             let w, h = int (float this.ClientSize.Width / mz), int (float this.ClientSize.Height / mz)
             match menuHit (menuLayout gs (menuView ()) w h) (this.MenuPoint(e.X, e.Y)) with
@@ -470,7 +486,7 @@ type GameForm() as this =
         // Map key states + held pad controls to player inputs
         this.MapInputs pads
 
-        if gs.RoundActive then
+        if gs.RoundActive && not confirmingQuit then
             gs <- gameTick gs
 
         this.Invalidate()

@@ -708,6 +708,8 @@ type MenuView =
     { HumanCount: int
       ChoosingWeapons: bool
       ShowingKeys: bool
+      /// The "end the round?" prompt is up over a round in progress
+      ConfirmingQuit: bool
       /// Each player's weapon choice, as shown ("Random" or a weapon name)
       WeaponChoices: string array
       /// Mouse position in logical pixels, for hover highlights
@@ -821,9 +823,20 @@ let private weaponDialog (gs: GameState) (view: MenuView) (windowW: int) (window
       centredLabel (px + pw / 2) (by + 46) "Random draws a weapon when the round starts." menuDim 1
       centredLabel (px + pw / 2) (by + 58) "Weapons can't be switched during the round." menuDim 1 ]
 
+/// Escape during a round: end it, or go back to it (it waits meanwhile).
+let private quitPrompt (windowW: int) (windowH: int) =
+    let pw, ph = 640, 150
+    let px, py = (windowW - pw) / 2, (windowH - ph) / 2
+    [ Panel(Rectangle(px, py, pw, ph))
+      centredLabel (px + pw / 2) (py + 18) "End the round?" Color.White 3
+      centredLabel (px + pw / 2) (py + 56) "The round in progress is lost and the menu opens." menuDim 1
+      Button(Rectangle(px + 16, py + ph - 54, 280, 36), "BACK", "Esc", "Escape", Plain)
+      Button(Rectangle(px + pw - 316, py + ph - 54, 300, 36), "END ROUND", "Space", "Space", Primary) ]
+
 /// The menu screen currently shown, in logical pixels.
 let menuLayout (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) : MenuElement list =
-    if view.ChoosingWeapons then weaponDialog gs view windowW windowH
+    if view.ConfirmingQuit then quitPrompt windowW windowH
+    elif view.ChoosingWeapons then weaponDialog gs view windowW windowH
     elif view.ShowingKeys then keysScreen windowW windowH
     else mainMenu gs view windowW windowH
 
@@ -940,9 +953,9 @@ let renderFrame (g: Graphics) (gs: GameState) (view: MenuView) (windowW: int) (w
             drawPlayerView g gs tbmp i vx vy vw vh
             drawBorder g vx vy vw vh i
 
-    // Menu overlay between rounds, at its own zoom (no wide-screen boost) so
-    // every menu fits
-    if not gs.RoundActive then
+    // Menu overlay between rounds (and the "end the round?" prompt during
+    // one), at its own zoom (no wide-screen boost) so every menu fits
+    if not gs.RoundActive || view.ConfirmingQuit then
         g.ResetTransform()
         let mz = menuZoomFor (float (max 1 physW)) (float (max 1 physH))
         g.ScaleTransform(float32 mz, float32 mz)
