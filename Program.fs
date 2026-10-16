@@ -287,6 +287,8 @@ let private weaponChoices = Array.create 4 RandomWeapon
 let mutable private choosingWeapons = false
 /// The desktop Keys & controls dialog is open.
 let mutable private showingKeys = false
+/// Escape during a round asks first; the round waits while the prompt is up
+let mutable private confirmingQuit = false
 
 let private humanPlayers () = gs.NumPlayers - gs.CpuCount
 
@@ -439,9 +441,9 @@ let private weaponDialogKey (code: string) =
 let private menuKeyAction (code: string) =
     match code with
     | "Escape" ->
-        paused <- false
         showingKeys <- false
-        if gs.RoundActive then gs <- { gs with RoundActive = false }
+        // a round in progress asks first (the prompt's END ROUND ends it)
+        if gs.RoundActive then confirmingQuit <- true
     // Desktop Keys & controls dialog: its button or F1 toggles it
     | "keys" | "F1" when not gs.RoundActive -> showingKeys <- not showingKeys
     // Touch PAUSE button (no keyboard key produces this code)
@@ -479,10 +481,26 @@ let private menuKeyAction (code: string) =
     | "F8" -> cpuCount <- min (4 - humanCount) (cpuCount + 1); applyPlayerCount ()
     | _ -> ()
 
-/// A key code's one-shot action (key presses, taps and clicks alike).
+/// Keys while the "end the round?" prompt is up: Space (or its END ROUND
+/// button) ends the round and opens the menu, Escape (BACK) goes back to
+/// the round. Space, not a player's fire key: nothing else answers to Space
+/// during a round.
+let private quitPromptKey (code: string) =
+    match code with
+    | "Space" | "endround" ->
+        confirmingQuit <- false
+        paused <- false
+        gs <- { gs with RoundActive = false }
+    | "Escape" -> confirmingQuit <- false
+    | _ -> ()
+
+/// A key code's one-shot action (key presses, taps and clicks alike): the open
+/// dialog takes it first.
 let private keyAction (code: string) =
     needsRender <- true   // menu toggles/level switches change state between steps
-    if choosingWeapons then weaponDialogKey code else menuKeyAction code
+    if confirmingQuit then quitPromptKey code
+    elif choosingWeapons then weaponDialogKey code
+    else menuKeyAction code
 
 /// Hold a key down: the held set feeds mapInputs, then the key's action runs.
 let private pressKey (code: string) =
@@ -712,6 +730,7 @@ let private syncMenuUi () =
         setClass (body ()) "playing" gs.RoundActive
         if not gs.RoundActive then releaseAllTouches ()
     setClass (body ()) "paused" (gs.RoundActive && paused)
+    setClass (body ()) "confirm-quit" (gs.RoundActive && confirmingQuit)
     if gs.RoundActive && touchMode then syncPlayerControls ()
     if not gs.RoundActive then
         for el in menuValueFields do
@@ -725,7 +744,7 @@ let private onTap (e: obj) =
     let button = closest (evTarget e) "[data-action]"
     if not (isNull button) then
         let code = attr button "data-action"
-        if code = "Escape" || code = "pause" then releaseAllTouches ()
+        if code = "Escape" || code = "pause" || code = "endround" then releaseAllTouches ()
         keyAction code
         if code = "Space" && touchMode then enterFullscreenLandscape ()
         if code = "install" then promptInstall ()
@@ -751,13 +770,13 @@ let rec private loop (ts: float) =
     while acc >= frameMs do
         pollPadButtons ()
         mapInputs ()
-        if gs.RoundActive && not paused then gs <- gameTick gs
+        if gs.RoundActive && not paused && not confirmingQuit then gs <- gameTick gs
         acc <- acc - frameMs
         needsRender <- true
     if needsRender then
         // Touch layout: viewports only for the humans, not the CPU ships
         let views = if touchMode then humanCount else gs.NumPlayers
-        renderFrame ctx gs views paused viewW viewH
+        renderFrame ctx gs views paused confirmingQuit viewW viewH
         syncMenuUi ()
         if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
         needsRender <- false

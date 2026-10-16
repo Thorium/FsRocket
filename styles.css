@@ -593,6 +593,27 @@ body.choosing #touch-menu, body.choosing #desk-menu {
     display: none;
 }
 
+/* ─── End-the-round prompt: Escape (or the touch QUIT button) during a round
+   asks first; shown while body.confirm-quit is set by Program.fs ─────── */
+
+#quit-dialog {
+    display: none;
+    z-index: 20;   /* over the in-round touch controls */
+    min-width: min(420px, calc(100vw - 32px));
+}
+
+body.playing.confirm-quit #quit-dialog {
+    display: flex;
+}
+
+#quit-dialog .tm-starts {
+    gap: 8px;
+}
+
+#quit-dialog .tm-starts button {
+    flex: 1 1 0;
+}
+
 /* Keyboard shortcuts mean nothing on a touch screen */
 body.touch .game-menu kbd {
     display: none;

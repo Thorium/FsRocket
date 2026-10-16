@@ -141,6 +141,16 @@
     <p class="dm-footer">Random draws a weapon when the round starts. Weapons can't be switched during the round.</p>
 </div>
 
+<!-- Escape during a round asks first; shown while body.confirm-quit is set by Program.fs -->
+<div class="game-menu" id="quit-dialog">
+    <h1>End the round?</h1>
+    <p class="dm-footer">The round in progress is lost and the menu opens.</p>
+    <div class="tm-row tm-starts">
+        <button data-action="Escape" type="button">BACK <kbd>Esc</kbd></button>
+        <button class="tm-start" data-action="endround" type="button">END ROUND <kbd>Space</kbd></button>
+    </div>
+</div>
+
 <div id="touch-controls">
     <button class="tc tc-quit" data-action="Escape" type="button" aria-label="Quit the round, back to menu">QUIT</button>
     <button class="tc tc-pause" data-action="pause" type="button" aria-label="Pause or resume the round">PAUSE</button>

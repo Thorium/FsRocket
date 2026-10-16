@@ -594,7 +594,9 @@ let drawBorder (ctx: obj) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
 /// `views` is how many players get a viewport (players 0..views-1); `paused`
 /// dims a live round with a PAUSED banner. Between rounds the frame is only
 /// dimmed: the menu itself is HTML (index.html).
-let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (windowW: int) (windowH: int) =
+/// `confirming`: the "end the round?" prompt (HTML) is up over the round,
+/// which is dimmed like a pause but without the pause text.
+let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (confirming: bool) (windowW: int) (windowH: int) =
     setSmoothing ctx false
     setBaseline ctx "top"
     fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
@@ -614,11 +616,12 @@ let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (windowW:
             drawPlayerView ctx gs tcanvas i vx vy vw vh
             drawBorder ctx vx vy vw vh i
 
-    if gs.RoundActive && paused then
+    if gs.RoundActive && (paused || confirming) then
         let cx, cy = float windowW / 2.0, float windowH / 2.0
         fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 140)
-        drawTextCentered ctx "PAUSED" cx (cy - 24.0) titleFont "rgb(255,255,128)"
-        drawTextCentered ctx "Tap PAUSE to continue" cx (cy + 12.0) subFont "rgb(192,192,192)"
+        if not confirming then
+            drawTextCentered ctx "PAUSED" cx (cy - 24.0) titleFont "rgb(255,255,128)"
+            drawTextCentered ctx "Tap PAUSE to continue" cx (cy + 12.0) subFont "rgb(192,192,192)"
 
     if not gs.RoundActive then
         fillRectC ctx 0.0 0.0 (float windowW) (float windowH) (cssRGBA 0 0 0 192)
