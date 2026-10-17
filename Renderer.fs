@@ -362,6 +362,18 @@ let drawPlayerView (g: Graphics) (gs: GameState) (tbmp: Bitmap) (playerIdx: int)
                     g.DrawLine(crossPen, ex - sz/2, ey, ex + sz/2, ey)
                     g.DrawLine(crossPen, ex, ey - sz/2, ex, ey + sz/2)
 
+            | EntityType.Flame when ent.WeaponIdx = WeaponType.ToxicDump ->
+                // Toxic cloud: a pulsing green haze the size of its hit radius
+                let tR = max 2 (int (ent.Radius * float Scale))
+                let pulse = 0.5 + 0.5 * sin (float ent.Timer * 0.15)
+                use hazeBrush = new SolidBrush(Color.FromArgb(50 + int (30.0 * pulse), 0x40, 0xC0, 0x20))
+                g.FillEllipse(hazeBrush, ex - tR, ey - tR, tR * 2, tR * 2)
+                let iR = tR * 2 / 3
+                use innerBrush = new SolidBrush(Color.FromArgb(40 + int (30.0 * pulse), 0x80, 0xFF, 0x40))
+                g.FillEllipse(innerBrush, ex - iR, ey - iR, iR * 2, iR * 2)
+                use edgePen = new Pen(Color.FromArgb(110, 0x60, 0xFF, 0x30), 1.0f)
+                g.DrawEllipse(edgePen, ex - tR, ey - tR, tR * 2, tR * 2)
+
             | EntityType.Flame ->
                 // Flame: fading orange-red glow, size grows with timer
                 let fTimer = max 1 (abs ent.Timer)
