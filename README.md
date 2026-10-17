@@ -96,4 +96,4 @@ public/*.LEV  — AUTS terrain maps served as static assets
 `Physics.fs`, `Terrain.fs`, `Weapons.fs`, `Types.fs`, `Entities.fs` and `Game.fs` are the
 shared, framework-agnostic game logic used by all three front-ends (Fable, MonoGame, WinForms).
 
-<img width="1185" height="717" alt="image" src="https://github.com/user-attachments/assets/052d8c29-2cda-4dc2-a88b-ebf61fe9d4d9" />
+<img width="961" height="628" alt="image" src="https://github.com/user-attachments/assets/aee02f7f-6e38-4e2a-a3b8-99d1252aa060" />

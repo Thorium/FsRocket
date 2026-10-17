@@ -320,9 +320,22 @@ let private markDirty (x0: int) (y0: int) (x1: int) (y1: int) =
             dirtyX1 <- max dirtyX1 x1
             dirtyY1 <- max dirtyY1 y1
 
+/// A queued water fill: pixel indices that turn to water in order, a few per tick.
+type private WaterFlow = { Cells: int array; Next: int }
+
+let mutable private waterFlows: WaterFlow list = []
+
+/// Index of the pixels the queued flows will fill (kept in step with them):
+/// they already count as water when a later hole plans its flow, so digging
+/// faster than the water flows still connects.
+let private queuedWater = Array.zeroCreate<bool> (MapWidth * MapHeight)
+
 /// Mark the whole map dirty — call after wholesale pixel changes that bypass
 /// eraseTerrainCircle (level reset from the pristine copy, upload, switch).
+/// Also drops queued water fills, which belong to the old pixels.
 let markAllDirty () =
+    waterFlows <- []
+    Array.fill queuedWater 0 queuedWater.Length false
     markDirty 0 0 (MapWidth - 1) (MapHeight - 1)
 
 /// Pop the accumulated dirty rect as inclusive (x0, y0, x1, y1), if any.
@@ -338,6 +351,211 @@ let takeDirtyRect () : (int * int * int * int) option =
 let inline setPixel (pixels: byte array) (x: int) (y: int) (value: byte) =
     if x >= 0 && x < MapWidth && y >= 0 && y < MapHeight then
         pixels[y * MapWidth + x] <- value
+
+// ─── Water Flow (holes shot next to water) ────────────────────────────
+//
+// A hole carved next to water fills with it, up to (just below) the top row
+// of that water body. If the space the hole opens into is no bigger than the
+// pond, it fills completely, bottom-up. If it is bigger — a leak — the hole
+// fills, water falls straight down from its edges as a waterfall the width
+// of the hole, and a small pool spreads where it lands. The pond's size caps
+// the water drawn, so a tiny pond never floods the level; its surface stays
+// put. All the work happens when a hole is shot; each tick then only places
+// a few queued pixels, so the fill animates.
+
+/// Most water one hole can draw from its pond (a contained cavity up to this
+/// size fills completely; a leak's waterfall and pool stop around here).
+[<Literal>]
+let private MaxWaterFill = 4000
+/// Water pixels placed per tick per fill — the flow animation speed.
+[<Literal>]
+let private WaterCellsPerTick = 30
+/// Bound on the water-body search (the bundled ponds are under 6000 px).
+[<Literal>]
+let private MaxWaterBody = 30000
+
+let inline private rowOf (i: int) = i / MapWidth
+
+/// Pixel i's neighbours on the map: left, right, up, down.
+let private neighbors (i: int) =
+    let x = i % MapWidth
+    let all = [| (if x > 0 then i - 1 else -1); (if x < MapWidth - 1 then i + 1 else -1); i - MapWidth; i + MapWidth |]
+    // only edge pixels lose neighbours
+    if x > 0 && x < MapWidth - 1 && i >= MapWidth && i < MapWidth * (MapHeight - 1) then all
+    else all |> Array.filter (fun j -> j >= 0 && j < MapWidth * MapHeight)
+
+/// Pixel i's k-th neighbour (0 left, 1 right, 2 up, 3 down), or -1 off the map.
+let private neighbor (i: int) (k: int) =
+    let x = i % MapWidth
+    match k with
+    | 0 -> if x > 0 then i - 1 else -1
+    | 1 -> if x < MapWidth - 1 then i + 1 else -1
+    | 2 -> if i >= MapWidth then i - MapWidth else -1
+    | _ -> if i < MapWidth * (MapHeight - 1) then i + MapWidth else -1
+
+/// The pixel below i, or -1 off the map.
+let private below (i: int) = if i < MapWidth * (MapHeight - 1) then i + MapWidth else -1
+
+/// The pixel dx (-1 or 1) beside i, or -1 off the map.
+let private beside (dx: int) (i: int) =
+    let x = i % MapWidth + dx
+    if x >= 0 && x < MapWidth then i + dx else -1
+
+/// Water, or queued to become water.
+let private isWet (pixels: byte array) (i: int) = pixels[i] = WaterColor || queuedWater[i]
+
+/// Empty space that no queued water is headed for.
+let private isDry (pixels: byte array) (i: int) = pixels[i] = VoidColor && not queuedWater[i]
+
+let private touchesWater (pixels: byte array) (i: int) = neighbors i |> Array.exists (isWet pixels)
+
+// Scratch for flood: a visit stamp per pixel (a fresh stamp per search, so
+// the visited set needs no clearing) and the search queue.
+let private visitStamp = Array.zeroCreate<int> (MapWidth * MapHeight)
+let private searchQueue = Array.zeroCreate<int> (MapWidth * MapHeight)
+let mutable private lastStamp = 0
+
+/// Breadth-first search from `seeds` through the pixels `canEnter` accepts,
+/// giving up once more than `limit` are found. The pixels in visiting order.
+let private flood (canEnter: int -> bool) (limit: int) (seeds: int array) =
+    lastStamp <- lastStamp + 1
+    let mark = lastStamp
+    let enqueue n i =
+        if visitStamp[i] = mark then
+            n
+        else
+            visitStamp[i] <- mark
+            searchQueue[n] <- i
+            n + 1
+    // the four neighbours of i, without allocating: this runs for every pixel searched
+    let rec around i k n =
+        if k = 4 then
+            n
+        else
+            let j = neighbor i k
+            around i (k + 1) (if j >= 0 && canEnter j then enqueue n j else n)
+    let rec grow head n =
+        if head >= n || n > limit then n
+        else grow (head + 1) (around searchQueue[head] 0 n)
+    Array.sub searchQueue 0 (grow 0 (Array.fold enqueue 0 seeds))
+
+/// Water spreading from `starts` over the pixels `canEnter` accepts, lowest
+/// first — the way a pool fills — until `budget` pixels.
+let private pool (canEnter: int -> bool) (budget: int) (starts: int array) =
+    let seen = System.Collections.Generic.HashSet<int>()
+    let rows = Array.init MapHeight (fun _ -> System.Collections.Generic.Stack<int>())
+    let push i = if canEnter i && seen.Add i then rows[rowOf i].Push i
+    starts |> Array.iter push
+    // only neighbours get pushed, so the lowest non-empty row is at most one below
+    let rec fill row acc count =
+        if count >= budget || row < 0 then acc
+        elif rows[row].Count = 0 then fill (row - 1) acc count
+        else
+            let i = rows[row].Pop()
+            neighbors i |> Array.iter push
+            fill (min (MapHeight - 1) (row + 1)) (i :: acc) (count + 1)
+    fill (MapHeight - 1) [] 0 |> List.rev |> Array.ofList
+
+let private lowestFirst (cells: int array) = cells |> Array.sortBy (fun i -> -(rowOf i))
+
+/// The water a hole just carved in the box (x0, y0)-(x1, y1) lets in: the
+/// pixels to fill, in order (none when the hole touches no water).
+let private planWaterFlow (pixels: byte array) (x0: int) (y0: int) (x1: int) (y1: int) : int array =
+    let x0, y0 = max 0 x0, max 0 y0
+    let x1, y1 = min (MapWidth - 1) x1, min (MapHeight - 1) y1
+    let box = [| for y in y0 .. y1 do for x in x0 .. x1 -> y * MapWidth + x |]
+    let inBox i =
+        let x, y = i % MapWidth, rowOf i
+        x >= x0 && x <= x1 && y >= y0 && y <= y1
+
+    // The water touching the hole: its top row is the surface, its size the budget.
+    let body =
+        box
+        |> Array.filter (isDry pixels)
+        |> Array.collect neighbors
+        |> Array.filter (isWet pixels)
+        |> flood (isWet pixels) MaxWaterBody
+    if body.Length = 0 then [||] else
+
+    let top = body |> Array.fold (fun t i -> min t (rowOf i)) MapHeight
+    let budget = min body.Length MaxWaterFill
+    let underwater i = rowOf i > top && isDry pixels i
+    // Hole pixels below the surface that touch the water seed the searches.
+    let seeds = box |> Array.filter (fun i -> underwater i && touchesWater pixels i)
+
+    // All the space below the surface that the hole opens into fills, if it fits...
+    let space = flood underwater budget seeds
+    if space.Length <= budget then lowestFirst space else
+
+    // ...otherwise it leaks: the hole itself fills...
+    let hole = flood (fun i -> underwater i && inBox i) MaxWaterFill seeds
+    let inHole = System.Collections.Generic.HashSet<int>(hole)
+    let isOpen i = i >= 0 && isDry pixels i && not (inHole.Contains i)
+
+    // ...water drops straight down from its bottom, and from its open sides
+    // after shooting out up to half the hole's width, so the waterfall is
+    // about as wide as the hole...
+    let fall (start: int) = start |> Array.unfold (fun c -> if isOpen c then Some(c, below c) else None)
+    let spoutLength = max 1 ((x1 - x0 + 1) / 2)
+    let spout (dx: int) (h: int) =
+        (beside dx h, 0)
+        |> Array.unfold (fun (c, n) -> if n < spoutLength && isOpen c then Some(c, (beside dx c, n + 1)) else None)
+    // Many starts share a column: fall only from those not already under a
+    // higher fall in the same column.
+    let columns =
+        hole
+        |> Array.collect (fun h -> Array.concat [ [| below h |]; spout -1 h; spout 1 h ])
+        |> Array.filter (fun i -> i >= 0)
+        |> Array.groupBy (fun i -> i % MapWidth)
+        |> Array.collect (fun (_, starts) ->
+            starts
+            |> Array.sortBy rowOf
+            |> Array.fold
+                (fun (columns, coveredTo) start ->
+                    if rowOf start <= coveredTo then
+                        columns, coveredTo
+                    else
+                        match fall start with
+                        | [||] -> columns, coveredTo
+                        | column -> column :: columns, rowOf (Array.last column))
+                ([], -1)
+            |> fst
+            |> Array.ofList)
+    let falls = Array.concat columns
+
+    // ...and pools where it lands, lowest pixels first, while the pond lasts.
+    let taken = System.Collections.Generic.HashSet<int>(Array.append hole falls)
+    let pooled =
+        columns
+        |> Array.map Array.last
+        |> Array.distinct
+        |> Array.collect (fun l -> [| beside -1 l; beside 1 l |])
+        |> Array.filter (fun i -> i >= 0)
+        |> pool (fun i -> underwater i && not (taken.Contains i)) (budget - hole.Length - falls.Length)
+
+    Array.concat [ lowestFirst hole; falls |> Array.sortBy rowOf; pooled ]
+
+let private queueFlow (cells: int array) =
+    if cells.Length > 0 then
+        cells |> Array.iter (fun i -> queuedWater[i] <- true)
+        waterFlows <- waterFlows @ [ { Cells = cells; Next = 0 } ]
+
+/// Advance the queued water fills by one tick. Returns true if any pixel changed.
+let stepWater (pixels: byte array) : bool =
+    let advance (f: WaterFlow) =
+        let stop = min f.Cells.Length (f.Next + WaterCellsPerTick)
+        let batch = f.Cells[f.Next .. stop - 1]
+        batch |> Array.iter (fun i -> queuedWater[i] <- false)
+        // pixels something else claimed meanwhile stay as they are
+        let placed = batch |> Array.filter (fun i -> pixels[i] = VoidColor)
+        placed
+        |> Array.iter (fun i ->
+            pixels[i] <- WaterColor
+            markDirty (i % MapWidth) (rowOf i) (i % MapWidth) (rowOf i))
+        { f with Next = stop }, placed.Length > 0
+    let stepped = waterFlows |> List.map advance
+    waterFlows <- stepped |> List.map fst |> List.filter (fun f -> f.Next < f.Cells.Length)
+    stepped |> List.exists snd
 
 /// Erase terrain in a circle (paint black / VoidColor) around a point.
 /// Skips the pads and the map's edge frame.
@@ -359,5 +577,7 @@ let eraseTerrainCircle (pixels: byte array) (cx: float) (cy: float) (radius: flo
                        && not (isFrame px py existing) then
                         pixels[py * MapWidth + px] <- VoidColor
                         erased <- true
-    if erased then markDirty (ix - r) (iy - r) (ix + r) (iy + r)
+    if erased then
+        markDirty (ix - r) (iy - r) (ix + r) (iy + r)
+        queueFlow (planWaterFlow pixels (ix - r) (iy - r) (ix + r) (iy + r))
     erased

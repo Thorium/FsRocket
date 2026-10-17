@@ -276,6 +276,22 @@ let hitsWall (level: LevelData option) (x: float) (y: float) (r: float) =
             x + r > w.X && x - r < w.X + w.W &&
             y + r > w.Y && y - r < w.Y + w.H)
 
+/// Where a body of radius r moving from (x0, y0) to (x1, y1) this tick first
+/// touches a wall, checked about every pixel along the way; None if the move
+/// is clear. Checking only the end point lets a fast round (4-10 px a tick)
+/// sink several pixels into the rock before it is noticed, so its crater
+/// opens sealed off inside the terrain.
+let firstWallHit (level: LevelData option) (x0: float) (y0: float) (x1: float) (y1: float) (r: float) =
+    let steps = max 1 (int (ceil (max (abs (x1 - x0)) (abs (y1 - y0)))))
+    let rec check k =
+        if k > steps then
+            None
+        else
+            let t = float k / float steps
+            let x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+            if hitsWall level x y r then Some(x, y) else check (k + 1)
+    check 1
+
 /// Reflect velocity off a wall. Returns (newX, newY, newVelX, newVelY, bounced)
 let bounceOffWalls (level: LevelData option) (x: float) (y: float) (vx: float) (vy: float) (r: float) =
     match level with

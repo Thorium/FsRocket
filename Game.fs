@@ -871,16 +871,16 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
             if ent.EType = EntityType.BulletAlt then min vy 16.0 else vy
         let x = ent.X + ent.VelX
         let y = ent.Y + vy
-        if hitsWall gs.Level x y 1.0 then
+        // Crater where the round meets the rock, not wherever this tick's move ends
+        match firstWallHit gs.Level ent.X ent.Y x y 1.0 with
+        | Some (hitX, hitY) ->
             // Freeze orbs fizzle on the wall without craters — a zero-damage
             // effect projectile shouldn't dig terrain
             if ent.EType <> EntityType.Shield then
-                eraseTerrain gs.Level x y 3.0
+                eraseTerrain gs.Level hitX hitY 3.0
             (None, [], [], dirty)
-        elif outOfBounds 20.0 x y || ent.Timer > 200 then
-            (None, [], [], dirty)
-        else
-            (Some { ent with X = x; Y = y; VelY = vy }, [], [], dirty)
+        | None when outOfBounds 20.0 x y || ent.Timer > 200 -> (None, [], [], dirty)
+        | None -> (Some { ent with X = x; Y = y; VelY = vy }, [], [], dirty)
 
 // ─── Blackhole Pull Pass ───────────────────────────────────────────────
 // Applied after all entities update, pulls entities and players toward blackholes.
@@ -1422,9 +1422,7 @@ let private cellOpen (level: LevelData) (c: int) =
 /// Whether `cells` holds cell `c` — a plain loop: as fast as LINQ's Contains
 /// on .NET, and it also compiles under Fable (the web build has no System.Linq)
 let inline private hasCell (cells: int array) (c: int) =
-    let mutable found = false
-    for x in cells do
-        if x = c then found <- true
+    let found = cells |> Array.exists (fun x -> x = c)
     found
 
 /// Where to fly next (pixels) from (px, py) toward the nearest of `goals` the
@@ -2098,6 +2096,12 @@ let gameTick (gs: GameState) : GameState =
         gs.TerrainDirty
         || List.exists (fun (_, _, _, d) -> d) playerResults
         || List.exists (fun (_, _, _, d) -> d) entityResults
+
+    // Water flowing into freshly shot holes, a few pixels per tick
+    let terrainDirty =
+        match gs.Level with
+        | Some level -> Terrain.stepWater level.Pixels || terrainDirty
+        | None -> terrainDirty
 
     // Merge surviving + newly spawned entities
     let entities = survivingEnts @ allNewEnts @ spawnedEnts
