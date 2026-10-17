@@ -34,7 +34,29 @@ let randomSpecialWeapon (rng: Random) (current: WeaponType) : WeaponType =
 
 // ─── Weapon Firing (returns updated Player * new Entity list) ──────────
 
-let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
+/// Weapons firing cannon-type rounds, which carry the firing ship's motion
+/// on top of their muzzle speed (BulletInheritVelocity)
+let private inheritsShipMotion (weapon: WeaponType) =
+    match weapon with
+    | WeaponType.Cannon
+    | WeaponType.Multicannon
+    | WeaponType.Machinegun
+    | WeaponType.RubberBullets
+    | WeaponType.RearTurret -> true
+    | _ -> false
+
+/// Add the ship's velocity (vx, vy: before the recoil kick) to the rounds of
+/// a weapon that inheritsShipMotion
+let private withShipMotion (weapon: WeaponType) (vx: float) (vy: float) (ents: Entity list) =
+    if inheritsShipMotion weapon then
+        ents
+        |> List.map (fun e ->
+            { e with
+                VelX = e.VelX + vx * BulletInheritVelocity
+                VelY = e.VelY + vy * BulletInheritVelocity })
+    else ents
+
+let private fireWeaponRaw (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
     let w = getWeapon p.WeaponType
     let p = { p with ReloadTimer = w.ReloadTicks; Ammo = p.Ammo - 1; ShotCount = p.ShotCount + 1 }
 
@@ -121,7 +143,7 @@ let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: in
 // ─── Special Weapon Firing (DOWN key) ──────────────────────────────────
 // Uses p.SpecialWeapon. Every case applies a small backwards recoil kick.
 
-let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
+let private fireSpecialRaw (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
     let sw = p.SpecialWeapon
     let w = getWeapon sw
 
@@ -242,8 +264,22 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
         // Default: standard forward shot
         p, [ makeProjectile p ownerIdx sw ]
 
+/// Fire the main weapon (fire key); cannon-type rounds carry the ship's motion.
+let fireWeapon (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
+    let fired, ents = fireWeaponRaw rng level p ownerIdx
+    fired, withShipMotion p.WeaponType p.VelX p.VelY ents
+
+/// Fire the special weapon (DOWN key); cannon-type rounds carry the ship's motion.
+let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
+    let fired, ents = fireSpecialRaw rng level p ownerIdx
+    fired, withShipMotion p.SpecialWeapon p.VelX p.VelY ents
+
 // ─── Player Update ─────────────────────────────────────────────────────
 // Returns (updated Player, new Entities, new Particles, terrainModified)
+
+/// Easy CPU ships fire at most once per this many ticks (1 s at 36 fps)
+[<Literal>]
+let EasyCpuFireTicks = 36
 
 let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle list * bool =
     let p = gs.Players[idx]
@@ -484,17 +520,30 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     // fire once the reload is half done, so a quick trigger finger can push
     // the main gun up to 2x the auto-fire rate. Main weapon only — specials
     // keep their full reload gate.
+    //
+    // Easy CPU ships hold their fire: after any shot, main gun or special,
+    // both guns wait at least EasyCpuFireTicks and the tap shortcut is off, so
+    // an Easy CPU fires about once a second. Hard CPUs and humans are untouched.
+    let easyCpu = p.IsCpu && gs.CpuDifficulty = Easy
+    let holdFire (p: Player) =
+        if easyCpu then
+            { p with ReloadTimer = max p.ReloadTimer EasyCpuFireTicks
+                     SpecialReloadTimer = max p.SpecialReloadTimer EasyCpuFireTicks }
+        else p
+
     let p, newEnts1 =
         let reloadDone = p.ReloadTimer = 0
-        let tapFire = freshFirePress && p.ReloadTimer * 2 <= (getWeapon p.WeaponType).ReloadTicks
+        let tapFire = freshFirePress && not easyCpu && p.ReloadTimer * 2 <= (getWeapon p.WeaponType).ReloadTicks
         if p.KeyFire && (reloadDone || tapFire) && p.Ammo > 0 && canControl then
-            fireWeapon gs.Rng gs.Level p idx
+            let p, ents = fireWeapon gs.Rng gs.Level p idx
+            holdFire p, ents
         else p, []
 
     // Special weapon firing (DOWN key) — uses SpecialWeapon + SpecialReloadTimer
     let p, newEnts2 =
         if p.KeyDown && p.SpecialReloadTimer = 0 && canControl then
-            fireSpecial gs.Rng gs.Level p idx
+            let p, ents = fireSpecial gs.Rng gs.Level p idx
+            holdFire p, ents
         else p, []
 
     // Death check
@@ -523,7 +572,7 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
     match ent.EType with
     | EntityType.Ricochet ->
         // Rubber bullet: travels in straight line, bounces off walls/terrain
-        let vy = ent.VelY + 0.04  // Light gravity
+        let vy = ent.VelY + LightRoundGravity
         let x = ent.X + ent.VelX
         let y = ent.Y + vy
         if outOfBounds 10.0 x y || ent.Timer > 200 then
@@ -812,9 +861,9 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         // area denial, not nose-dive (its forward drift is only 1.2 px/tick).
         let gravity =
             match ent.EType with
-            | EntityType.Bullet -> 0.125
-            | EntityType.Shield when ent.WeaponIdx = WeaponType.Nucleus -> 0.005
-            | EntityType.BulletAlt | EntityType.Shield -> 0.04
+            | EntityType.Bullet -> BulletGravity
+            | EntityType.Shield when ent.WeaponIdx = WeaponType.Nucleus -> FreezeOrbGravity
+            | EntityType.BulletAlt | EntityType.Shield -> LightRoundGravity
             | _ -> 0.0
         let vy = ent.VelY + gravity
         // BulletAlt has VelY clamp of 128 integer = 16.0 float
@@ -1269,6 +1318,8 @@ let updateParticle (p: Particle) : Particle option =
 // ─── CPU AI ────────────────────────────────────────────────────────────
 // Full AI: lead-shot aiming, projectile dodging, weapon-aware tactics,
 // gravity-compensated movement, terrain/boundary avoidance, per-CPU personality.
+// The AI is the same at both difficulties; Easy only caps the fire rate
+// (EasyCpuFireTicks, applied in updatePlayer).
 
 // AI personality traits derived from player index — gives each CPU a different style
 type AiPersonality =
@@ -1284,6 +1335,379 @@ let aiPersonalities = [|
     { AimTolerance = 18.0; FireRange = 120.0; Aggression = 0.9; DodgeRadius = 40.0; SpecialUseChance = 0.4 }  // Brawler
     { AimTolerance = 10.0; FireRange = 180.0; Aggression = 0.6; DodgeRadius = 55.0; SpecialUseChance = 0.6 }  // Balanced
 |]
+
+// ── Retreat to repair ──
+// A badly damaged CPU ship breaks off the fight and flies to the nearest free
+// base it can see, then sits there as a turret (turning and firing, no
+// thrust) until the pad has healed it to full. It's an occasional move, not a
+// habit: at most one repair trip a minute (dying resets the count), never
+// started with an enemy close by, and abandoned (back to the fight) the moment
+// an enemy comes close. With every other ship dead, a CPU below half health
+// uses the lull to repair too.
+
+/// Health at or below which a CPU heads for a base (20%)
+let cpuRepairHealth = FullHealth * 2 / 10
+/// With no enemy alive, a CPU below this health (50%) heads for a base
+let cpuLullRepairHealth = FullHealth / 2
+/// At most one repair trip per CPU life per this many ticks (one minute at 36 fps)
+[<Literal>]
+let CpuRepairCooldownTicks = 36 * 60
+/// An enemy closer than this (pixels) keeps a CPU fighting instead of docking.
+/// About half a 2-player viewport (which shows ~128x160 map pixels), so an
+/// enemy at the edge of the screen or beyond no longer counts as near.
+[<Literal>]
+let CpuRepairEnemyClearance = 60.0
+/// A repair trip that hasn't docked within this many ticks (15 s) is given up
+[<Literal>]
+let CpuRepairTripTicks = 36 * 15
+
+/// Whether a line from (x0, y0) to (x1, y1), in pixels, shifted `side` pixels
+/// sideways, is clear of walls; its first `skip` pixels aren't checked
+let private lineClear (level: LevelData) (x0: float) (y0: float) (x1: float) (y1: float) (side: float) (skip: float) =
+    let len = sqrt ((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0))
+    let steps = max 1 (int len)
+    let nx, ny = if len > 0.0 then -(y1 - y0) / len, (x1 - x0) / len else 0.0, 0.0
+    seq { 0..steps }
+    |> Seq.forall (fun s ->
+        let t = float s / float steps
+        t * len < skip
+        || (let x = x0 + (x1 - x0) * t + nx * side
+            let y = y0 + (y1 - y0) * t + ny * side
+            not (Terrain.isWall (Terrain.terrainAt level.Pixels x y))))
+
+/// Line of sight: the bare straight line between two points is clear of walls.
+/// Right for "can I see / shoot the enemy" (bullets are thin), where a
+/// ship-wide corridor would clip the floor under an enemy resting on it.
+let private inSight (level: LevelData) (x0: float) (y0: float) (x1: float) (y1: float) =
+    lineClear level x0 y0 x1 y1 0.0 0.0
+
+/// Whether a ship-wide corridor (the straight line between two points, in
+/// pixels, plus parallel lines 3 pixels either side) is clear of walls — a bare
+/// line can graze a corner the ship itself would catch on. The side lines
+/// start 4 pixels out, so a ship resting on the ground can still see along it.
+let private clearPath (level: LevelData) (x0: float) (y0: float) (x1: float) (y1: float) =
+    inSight level x0 y0 x1 y1
+    && lineClear level x0 y0 x1 y1 3.0 4.0
+    && lineClear level x0 y0 x1 y1 -3.0 4.0
+
+// Route finding: the map as a grid of RouteCell-pixel cells, open where a ship
+// fits (the cell centre and points 3 pixels around it are clear of walls).
+// A breadth-first search finds the shortest route to a base through open cells.
+
+/// Route grid cell size in pixels
+[<Literal>]
+let private RouteCell = 4
+let private routeW = MapWidth / RouteCell
+let private routeH = MapHeight / RouteCell
+
+// Search scratch space, reused by every route search (the game loop is
+// single-threaded) instead of allocating ~40 KB per search, every tick
+let private routeParent = Array.create (routeW * routeH) -2      // -2 unvisited, -1 start
+let private routeOpen = Array.zeroCreate<byte> (routeW * routeH)  // 0 unknown, 1 open, 2 closed
+let private routeQueue = System.Collections.Generic.Queue<int>()
+
+let private cellCentre (c: int) =
+    float ((c % routeW) * RouteCell + RouteCell / 2), float ((c / routeW) * RouteCell + RouteCell / 2)
+
+let private cellAt (x: float) (y: float) =
+    let cx = clampF 0.0 (float (routeW - 1)) (x / float RouteCell) |> int
+    let cy = clampF 0.0 (float (routeH - 1)) (y / float RouteCell) |> int
+    cy * routeW + cx
+
+let private cellOpen (level: LevelData) (c: int) =
+    let x, y = cellCentre c
+    [ 0.0, 0.0; 3.0, 0.0; -3.0, 0.0; 0.0, 3.0; 0.0, -3.0 ]
+    |> List.forall (fun (dx, dy) -> not (Terrain.isWall (Terrain.terrainAt level.Pixels (x + dx) (y + dy))))
+
+/// Whether `cells` holds cell `c` — a plain loop: as fast as LINQ's Contains
+/// on .NET, and it also compiles under Fable (the web build has no System.Linq)
+let inline private hasCell (cells: int array) (c: int) =
+    let mutable found = false
+    for x in cells do
+        if x = c then found <- true
+    found
+
+/// Where to fly next (pixels) from (px, py) toward the nearest of `goals` the
+/// ship can reach, if any. A goal in plain sight is flown at directly;
+/// otherwise the nearest goal by route wins, and the waypoint is the farthest
+/// point along that route the ship has a clear corridor to — so it flies
+/// straight where it can and around terrain where it must.
+let private routeStep (level: LevelData) (px: float) (py: float) (goals: (float * float) array) : (float * float) option =
+    let visibleGoal =
+        goals
+        |> Array.filter (fun (gx, gy) -> clearPath level px py gx gy)
+        |> Array.sortBy (fun (gx, gy) -> (gx - px) * (gx - px) + (gy - py) * (gy - py))
+        |> Array.tryHead
+    match visibleGoal with
+    | Some _ -> visibleGoal
+    | None when goals.Length = 0 -> None
+    | None ->
+        // Breadth-first search from the ship's cell to the first goal cell
+        let goalCells = goals |> Array.map (fun (gx, gy) -> cellAt gx gy)
+        let parent = routeParent
+        let isOpen = routeOpen
+        let queue = routeQueue
+        Array.fill parent 0 parent.Length -2
+        Array.fill isOpen 0 isOpen.Length 0uy
+        queue.Clear()
+        let openAt c =
+            if isOpen[c] = 0uy then isOpen[c] <- if cellOpen level c then 1uy else 2uy
+            isOpen[c] = 1uy
+        let start = cellAt px py
+        parent[start] <- -1
+        queue.Enqueue start
+        let mutable found = -1
+        while found < 0 && queue.Count > 0 do
+            let c = queue.Dequeue()
+            if hasCell goalCells c then found <- c
+            else
+                let cx, cy = c % routeW, c / routeW
+                for nx, ny in [ cx - 1, cy; cx + 1, cy; cx, cy - 1; cx, cy + 1 ] do
+                    if nx >= 0 && nx < routeW && ny >= 0 && ny < routeH then
+                        let nc = ny * routeW + nx
+                        if parent[nc] = -2 && (hasCell goalCells nc || openAt nc) then
+                            parent[nc] <- c
+                            queue.Enqueue nc
+        if found < 0 then None
+        else
+            // Route from the ship to the goal; take the farthest of the next 40
+            // cells in clear sight (the next cell on the route at worst). A
+            // waypoint the ship is already on (e.g. at the mouth of a shaft
+            // narrower than the sight check) moves on to the cell after it.
+            let route =
+                List.unfold (fun c -> if c < 0 then None else Some(c, parent[c])) found |> List.rev
+            match List.tail route with
+            | [] -> Some(cellCentre found)
+            | next :: _ as ahead ->
+                let best =
+                    ahead
+                    |> List.truncate 40
+                    |> List.rev
+                    |> List.tryFind (fun c -> let x, y = cellCentre c in clearPath level px py x y)
+                    |> Option.defaultValue next
+                let bx, by = cellCentre best
+                if (bx - px) * (bx - px) + (by - py) * (by - py) < 16.0 then
+                    match ahead |> List.skipWhile (fun c -> c <> best) |> List.tail with
+                    | after :: _ -> Some(cellCentre after)
+                    | [] -> Some(bx, by)
+                else Some(bx, by)
+
+/// Where CPU `i` should fly next on its way to the nearest free base it can
+/// reach (pixels), if any. The goal is a spot 25 pixels over the pad (when the
+/// drop onto it is clear) until the ship is above the pad itself, then the pad.
+let private nearestRepairBase (gs: GameState) (i: int) (px: float) (py: float) : (float * float) option =
+    match gs.Level with
+    | Some level ->
+        let occupied (sp: SpawnPoint) =
+            gs.Players
+            |> List.indexed
+            |> List.exists (fun (j, o) ->
+                j <> i && j < gs.NumPlayers && o.Alive
+                && abs (o.PosX / PositionScale - (float sp.X + float sp.Width / 2.0)) < float sp.Width / 2.0 + 6.0
+                && abs (o.PosY / PositionScale - float sp.Y) < 8.0)
+        let goal (sp: SpawnPoint) =
+            let bx, by = float sp.X + float sp.Width / 2.0, float sp.Y - 2.0
+            let overPad = abs (px - bx) < float sp.Width / 2.0 - 2.0 && py <= by
+            if overPad || not (clearPath level bx (by - 25.0) bx by) then bx, by else bx, by - 25.0
+        level.SpawnPoints
+        |> Array.filter (occupied >> not)
+        |> Array.map goal
+        |> routeStep level px py
+    | None -> None
+
+/// Whether flying from (px, py) along `angle` hits a wall or the arena edge
+/// within 6 pixels (sampled close in, so a one-pixel bump next to a ship
+/// resting on the ground counts)
+let private wallAhead (level: LevelData) (px: float) (py: float) (angle: float) =
+    let rad = degToRad (angle + 90.0)
+    [ 1.0; 2.0; 4.0; 6.0 ]
+    |> List.exists (fun d ->
+        let x = px + cos rad * d
+        let y = py - sin rad * d
+        x < 2.0 || x > ArenaWidth - 2.0 || y < 2.0 || y > ArenaHeight - 2.0
+        || Terrain.isWall (Terrain.terrainAt level.Pixels x y))
+
+/// Open-space probe: of the 8 compass directions — north, northwest, west,
+/// southwest, south, southeast, east, northeast (game angles 0, 45 .. 315; 0 is
+/// nose up, angles grow anticlockwise) — those where the points 20 and 60
+/// pixels out are both empty space (black: no wall, no water, inside the
+/// arena) and no wall lies on the line out to them (so a thin wall right beside
+/// the ship isn't skipped over): probably free to fly that way.
+let private openDirections (level: LevelData) (px: float) (py: float) : float list =
+    let inArena (x: float) (y: float) = x >= 2.0 && x <= ArenaWidth - 2.0 && y >= 2.0 && y <= ArenaHeight - 2.0
+    let empty (x: float, y: float) = inArena x y && Terrain.isVoid (Terrain.terrainAt level.Pixels x y)
+    [ for k in 0..7 do
+          let angle = float k * 45.0
+          let rad = degToRad (angle + 90.0)
+          let at (d: float) = px + cos rad * d, py - sin rad * d
+          let lineClear =
+              seq { 2.0..2.0..60.0 }
+              |> Seq.forall (fun d ->
+                  let x, y = at d
+                  inArena x y && not (Terrain.isWall (Terrain.terrainAt level.Pixels x y)))
+          if lineClear && empty (at 20.0) && empty (at 60.0) then
+              yield angle ]
+
+/// Steer toward a waypoint: returns (turnLeft, turnRight, thrust). Wants a
+/// velocity aimed at the waypoint that slows on approach, and only ever thrusts
+/// up or sideways — gravity does the descending. If walls block the way the
+/// nose wants to push, it tilts up in steps until the way is clear. A pad stops
+/// a ship touching it at any speed, so the landing need not be gentle, only
+/// clear of walls.
+let private steerToBase (level: LevelData) (p: Player) (px: float) (py: float) (tx: float) (ty: float) =
+    let dx = tx - px
+    let dy = ty - py
+    let wantVX = clampF -1.0 1.0 (dx * 0.08)
+    let wantVY = clampF -1.0 0.8 (dy * 0.04)
+    // Resting on the ground (or a slope): a push that lifts less than gravity
+    // pulls scrapes the floor and the whole move is undone. So climb off it
+    // first — or, when the route goes down, slide off sideways with a little lift.
+    let grounded =
+        p.VelY >= 0.0
+        && (Terrain.isWall (Terrain.terrainAt level.Pixels px (py + 1.0))
+            || Terrain.isWall (Terrain.terrainAt level.Pixels px (py + 1.5)))
+    let ex =
+        let e = wantVX - p.VelX
+        if grounded && dy > 2.0 && abs e < 0.5 then (if dx >= 0.0 then 0.5 else -0.5) else e
+    let ey =
+        let lift = if not grounded then 0.0 elif dy > 2.0 then -0.25 else -0.5
+        min lift (wantVY - p.VelY)
+    let needThrust = sqrt (ex * ex + ey * ey) > 0.1
+    let angleDiff (target: float) =
+        let mutable diff = target - p.Angle
+        if diff > 180.0 then diff <- diff - 360.0
+        if diff < -180.0 then diff <- diff + 360.0
+        diff
+    // Nose along the needed push (tilted up past any wall in the way), or
+    // straight up (ready to brake) when coasting
+    let wantAngle =
+        if needThrust then
+            let a = atan2 (-ex) (-ey) * 180.0 / Math.PI
+            let a = if a < 0.0 then a + 360.0 else a
+            // Step toward nose-up (angle 0) 30 degrees at a time, then try
+            // tilting either way off the wanted direction, and last any of the
+            // 8 compass directions (nearest to the wanted one first) — wedged
+            // in a corner, backing out beats waiting
+            let towardUp = if a > 180.0 then 30.0 else -30.0
+            let upward =
+                List.init 7 (fun k ->
+                    let c = a + towardUp * float k
+                    if (towardUp > 0.0 && c >= 360.0) || (towardUp < 0.0 && c <= 0.0) then 0.0 else c)
+            let sideways = [ a + 30.0; a - 30.0; a + 60.0; a - 60.0 ] |> List.map (fun c -> (c + 360.0) % 360.0)
+            let compass =
+                [ 0.0..45.0..315.0 ] |> List.sortBy (fun c -> abs ((c - a + 540.0) % 360.0 - 180.0))
+            // Airborne with the way on lying below: a blocked push means
+            // coast — gravity drops the ship past the obstacle, where
+            // tilting up would only hold it in place
+            let candidates = if dy > 2.0 && not grounded then [ a ] else upward @ sideways @ compass
+            candidates |> List.tryFind (wallAhead level px py >> not)
+        else Some 0.0
+    match wantAngle with
+    | Some target ->
+        let diff = angleDiff target
+        (diff > 3.0, diff < -3.0, needThrust && abs diff < 30.0)
+    | None ->
+        // Boxed in (or coasting down past a wall): turn nose-up, no thrust,
+        // and wait for gravity or a gap
+        let diff = angleDiff 0.0
+        (diff > 3.0, diff < -3.0, false)
+
+/// CPU `i`'s keys while on a repair trip, or None when it isn't on one: no
+/// trip under way and `startTrip` false, back at full health, no free base in
+/// sight to start for, or a trip that hasn't reached a pad within
+/// CpuRepairTripTicks. Docked, it uses the `docked` keys with no thrust; en
+/// route it steers for the base (firing if `fire` says so); if it loses sight
+/// of the base mid-trip it climbs to find it again. A new trip uses up the
+/// once-a-minute allowance (RepairTick) only if `countsTowardLimit` — lull
+/// trips, with every enemy dead, don't.
+let private repairTrip (gs: GameState) (i: int) (p: Player) (px: float) (py: float)
+                       (startTrip: bool) (countsTowardLimit: bool) (fire: bool) (docked: Player) : Player option =
+    let tick = gs.GameTick
+    let newTrip = not p.Repairing
+    let repairTick = if newTrip && countsTowardLimit then tick else p.RepairTick
+    // The time limit is for reaching a pad: TripTick follows a docked ship, so
+    // one knocked off the pad gets the full time to land again
+    let tripTick = if newTrip then tick else p.TripTick
+    let tripTooLong = p.Repairing && not p.OnBase && tick - p.TripTick > CpuRepairTripTicks
+    if tripTooLong || p.Health >= FullHealth || not (p.Repairing || startTrip) then None
+    elif p.OnBase then
+        Some { docked with KeyUp = false; Repairing = true; RepairTick = repairTick; TripTick = tick }
+    else
+        match gs.Level, nearestRepairBase gs i px py with
+        | Some level, Some (wx, wy) ->
+            let left, right, thrust = steerToBase level p px py wx wy
+            Some { p with
+                    KeyUp = thrust
+                    KeyLeft = left
+                    KeyRight = right
+                    KeyFire = fire
+                    KeyDown = false
+                    Repairing = true
+                    RepairTick = repairTick
+                    TripTick = tripTick }
+        | Some level, None when p.Repairing ->
+            // Lost sight of the base mid-trip (dropped into a pocket): climb
+            let left, right, thrust = steerToBase level p px py px (py - 30.0)
+            Some { p with
+                    KeyUp = thrust
+                    KeyLeft = left
+                    KeyRight = right
+                    KeyFire = fire
+                    KeyDown = false }
+        | _ -> None
+
+/// Whether a cannon shell fired now at game angle `angle` would come back down
+/// on the ship itself. Steps the shell (muzzle speed along `angle` plus the
+/// inherited ship velocity, falling at BulletGravity) against the ship — kept
+/// in place when standing or hovering, otherwise coasting on under gravity —
+/// and checks whether they meet again once the self-hit grace is over. This
+/// covers a steep shot from a ship standing still, climbing, or drifting
+/// sideways (the shell drifts with it).
+let private shellFallsBack (p: Player) (angle: float) (muzzle: float) =
+    let rad = degToRad (angle + 90.0)
+    let staysPut = sqrt (p.VelX * p.VelX + p.VelY * p.VelY) < 0.15
+    let mutable sx, sy = 0.0, 0.0   // shell, relative to the ship's position now
+    let mutable svx, svy =
+        cos rad * muzzle + p.VelX * BulletInheritVelocity, -(sin rad) * muzzle + p.VelY * BulletInheritVelocity
+    let mutable hx, hy = 0.0, 0.0   // the ship
+    let mutable hvy = p.VelY
+    let mutable hit = false
+    let mutable t = 0
+    while not hit && t < 150 do
+        t <- t + 1
+        svy <- svy + BulletGravity
+        sx <- sx + svx
+        sy <- sy + svy
+        if not staysPut then
+            hvy <- min (hvy + GravityAccel) MaxVelocity
+            hx <- hx + p.VelX
+            hy <- hy + hvy
+        if t > SelfHitGraceTicks && (sx - hx) * (sx - hx) + (sy - hy) * (sy - hy) < 36.0 then
+            hit <- true
+    hit
+
+/// Cannon aim from (px, py) at a target (tx, ty), in pixels, allowing for the
+/// bullet's fall (BulletGravity): the game angle to fire at on the low, direct
+/// arc, and the flight time in ticks. None when the target is beyond the
+/// bullet's reach — firing anyway only drops shots short.
+let private ballisticAim (speed: float) (px: float) (py: float) (tx: float) (ty: float) : (float * float) option =
+    let x = tx - px
+    let up = py - ty   // height of the target above the ship
+    let g = BulletGravity
+    let v2 = speed * speed
+    let disc = v2 * v2 - g * (g * x * x + 2.0 * up * v2)
+    if disc < 0.0 then None
+    else
+        let ax = abs x
+        // Elevation above the horizontal (straight up/down for a target overhead/below)
+        let theta =
+            if ax < 0.5 then (if up >= 0.0 then Math.PI / 2.0 else -Math.PI / 2.0)
+            else atan ((v2 - sqrt disc) / (g * ax))
+        let dirX = (if x >= 0.0 then 1.0 else -1.0) * cos theta
+        let dirY = -(sin theta)
+        let ticks = if ax < 0.5 then abs up / speed else ax / (speed * cos theta)
+        let a = atan2 (-dirX) (-dirY) * 180.0 / Math.PI
+        Some((if a < 0.0 then a + 360.0 else a), ticks)
 
 let cpuAI (gs: GameState) : GameState =
     let players =
@@ -1309,8 +1733,13 @@ let cpuAI (gs: GameState) : GameState =
                         if d < bestDist then bestDist <- d; bestIdx <- j
 
                 if bestIdx < 0 then
-                    // No enemies alive — drift
-                    { p with KeyUp = false; KeyLeft = false; KeyRight = false; KeyFire = false; KeyDown = false }
+                    // No enemies alive — drift, or use the lull to repair on a
+                    // base when below half health
+                    let drift =
+                        { p with KeyUp = false; KeyLeft = false; KeyRight = false; KeyFire = false; KeyDown = false
+                                 Repairing = false }
+                    repairTrip gs i p px py (p.Health < cpuLullRepairHealth) false false drift
+                    |> Option.defaultValue drift
                 else
                     let enemy = gs.Players[bestIdx]
                     let ex = enemy.PosX / PositionScale
@@ -1322,29 +1751,46 @@ let cpuAI (gs: GameState) : GameState =
                     let dist = sqrt (dx*dx + dy*dy) + 0.1
 
                     // ── Lead-shot prediction ──
-                    // Estimate bullet travel time, then predict where enemy will be
+                    // Predict where the enemy will be when the shot arrives
+                    // (accounting for gravity on the enemy)
                     let w = getWeapon p.WeaponType
                     let bulletSpeed = max 1.0 w.ProjectileSpeed
-                    let travelTicks = dist / bulletSpeed
-                    // Predict enemy position accounting for gravity on enemy
-                    let predX = ex + evx * travelTicks
-                    let predY = ey + evy * travelTicks + 0.5 * GravityAccel * travelTicks * travelTicks
-                    // Clamp prediction to arena
-                    let predX = clampF 5.0 (ArenaWidth - 5.0) predX
-                    let predY = clampF 5.0 (ArenaHeight - 5.0) predY
+                    let predictAt (ticks: float) =
+                        clampF 5.0 (ArenaWidth - 5.0) (ex + evx * ticks),
+                        clampF 5.0 (ArenaHeight - 5.0) (ey + evy * ticks + 0.5 * GravityAccel * ticks * ticks)
+                    let predX, predY = predictAt (dist / bulletSpeed)
 
                     // ── Target angle toward predicted position ──
-                    let tdx = predX - px
-                    let tdy = predY - py
-                    let targetAngle =
-                        let a = atan2 (-tdx) (-tdy) * 180.0 / Math.PI
+                    // Cannon bullets fall (BulletGravity), so aim along their
+                    // arc: solve it to the predicted spot, then refine twice
+                    // with the arc's own flight time. The shell also carries
+                    // part of this ship's velocity (BulletInheritVelocity) —
+                    // the same as aiming from a still ship at a target drifting
+                    // the opposite way, so that drift comes off the aim point.
+                    // Out of the cannon's reach: no arc — face the enemy
+                    // directly (pursuit thrusts that way) and hold the cannon.
+                    let shellAim (ticks: float) =
+                        let x, y = predictAt ticks
+                        ballisticAim bulletSpeed px py
+                            (x - p.VelX * BulletInheritVelocity * ticks)
+                            (y - p.VelY * BulletInheritVelocity * ticks)
+                    let cannonShot =
+                        shellAim (dist / bulletSpeed)
+                        |> Option.bind (fun (_, ticks) -> shellAim ticks)
+                        |> Option.bind (fun (_, ticks) -> shellAim ticks)
+                    let directAngle =
+                        let a = atan2 (-(predX - px)) (-(predY - py)) * 180.0 / Math.PI
                         if a < 0.0 then a + 360.0 else a
-                    let mutable diff = targetAngle - p.Angle
-                    if diff > 180.0 then diff <- diff - 360.0
-                    if diff < -180.0 then diff <- diff + 360.0
+                    let angleTo (target: float) =
+                        let d = target - p.Angle
+                        if d > 180.0 then d - 360.0 elif d < -180.0 then d + 360.0 else d
+                    let targetAngle = match cannonShot with Some (a, _) -> a | None -> directAngle
+                    let diff = angleTo targetAngle
 
                     let turnLeft = diff > 3.0
                     let turnRight = diff < -3.0
+                    // Plain aim turn, kept apart from the dodge override below
+                    let aimLeft, aimRight = turnLeft, turnRight
 
                     // ── Cannon aim tolerance (main fire key — always Cannon) ──
                     let aimTol = personality.AimTolerance
@@ -1352,8 +1798,28 @@ let cpuAI (gs: GameState) : GameState =
 
                     let aimed = abs diff < aimTol
                     let inRange = dist < fireRange
+                    let shipSpeed = sqrt (p.VelX * p.VelX + p.VelY * p.VelY)
+                    // Never fire a shell that would come back down on this ship
+                    // (checked only when the CPU would otherwise fire). The
+                    // ship turns before it fires within a tick, so check every
+                    // angle the shell can leave at: the nose now, or one turn
+                    // step either way — aiming at a target straight overhead,
+                    // the nose flips across vertical every tick.
+                    let ownShellReturns =
+                        aimed && inRange && cannonShot.IsSome
+                        && [ p.Angle; p.Angle + TurnSpeed; p.Angle - TurnSpeed ]
+                           |> List.exists (fun a -> shellFallsBack p a bulletSpeed)
+                    // The shot the CPU is lining up would itself come back down
+                    // on it (enemy about straight overhead) — whatever the nose
+                    // points at right now. Triggers the sidestep below.
+                    let wantedShotReturns =
+                        inRange
+                        && (match cannonShot with
+                            | Some (a, _) -> shellFallsBack p a bulletSpeed
+                            | None -> false)
                     let shouldFire =
-                        aimed && inRange && phase <> 0  // skip 1/13 ticks
+                        aimed && inRange && cannonShot.IsSome && not ownShellReturns
+                        && phase <> 0  // skip 1/13 ticks
 
                     // ── Dodge incoming projectiles ──
                     let mutable threatDX = 0.0
@@ -1441,6 +1907,16 @@ let cpuAI (gs: GameState) : GameState =
                     // Moving fast in general
                     let speed = sqrt (p.VelX * p.VelX + p.VelY * p.VelY)
 
+                    // Low enough to want a repair trip (and allowed one), with a
+                    // base in sight, but the enemy is too close to dock: stop
+                    // pursuing (aim, fire and dodge still) so the gap can open
+                    let mayStartTrip =
+                        p.Health <= cpuRepairHealth
+                        && (p.RepairTick < 0 || tick - p.RepairTick >= CpuRepairCooldownTicks)
+                    let holdBack =
+                        not p.Repairing && mayStartTrip && dist < CpuRepairEnemyClearance
+                        && (nearestRepairBase gs i px py).IsSome
+
                     let shouldThrust =
                         if blocked10 || boundaryBlocked then false
                         elif fallingFast then true  // always brake a fall
@@ -1450,6 +1926,7 @@ let cpuAI (gs: GameState) : GameState =
                             speed < 0.8
                         elif waterAhead then false  // don't fly into water
                         elif dodging then true  // thrust to dodge
+                        elif holdBack then false  // let the enemy drift out of range
                         else
                             // Normal pursuit: thrust toward enemy, with personality aggression.
                             // A frozen enemy is a falling wrecking ball — keep clear instead
@@ -1460,6 +1937,28 @@ let cpuAI (gs: GameState) : GameState =
                             (wantClose || phase < 8) && not tooClose
 
                     // ── Special weapon (DOWN key) ──
+                    // Most specials fly straight or barely fall (the freezer
+                    // floats), so they aim straight at the enemy; the bullet
+                    // specials (machinegun, multicannon) share the cannon's
+                    // arc, ship's motion included. Rubber bullets fly nearly
+                    // straight but carry the ship's motion too: they lead the
+                    // enemy by their own flight time, aim off the drift they
+                    // pick up, and aim a little high for their light sag.
+                    let arcAimed = aimed
+                    let rubberAimed =
+                        let t = dist / (getWeapon WeaponType.RubberBullets).ProjectileSpeed
+                        let rx, ry = predictAt t
+                        let ax = rx - p.VelX * BulletInheritVelocity * t - px
+                        let ay = ry - p.VelY * BulletInheritVelocity * t - 0.5 * LightRoundGravity * t * t - py
+                        let a = atan2 (-ax) (-ay) * 180.0 / Math.PI
+                        abs (angleTo (if a < 0.0 then a + 360.0 else a)) < aimTol
+                    let diff = angleTo directAngle
+                    let aimed = abs diff < aimTol
+                    // Mines and toxic pools stay where they are dropped and can
+                    // hit their owner, so drop them only on the move, fast
+                    // enough to be clear before they bite. A blackhole's pull
+                    // reaches 48 px, so it needs a faster getaway.
+                    let droppingClear = shipSpeed > 0.5
                     let useSpecial =
                         match p.SpecialWeapon with
                         | WeaponType.Magnofilter ->
@@ -1468,19 +1967,19 @@ let cpuAI (gs: GameState) : GameState =
                         | WeaponType.Multicannon ->
                             // Use 360° burst when enemy is close (regular fire)
                             // Use tight burst (special) when aimed at range
-                            aimed && dist > 60.0 && dist < 150.0 && phase % 5 = 0
+                            arcAimed && dist > 60.0 && dist < 150.0 && phase % 5 = 0
                         | WeaponType.Sonicboom ->
                             // Use expanding ring when enemy very close
                             dist < 50.0 && phase % 4 = 0
                         | WeaponType.Blackhole ->
                             // Drop blackhole when enemy is close
-                            dist < 70.0 && phase % 6 = 0
+                            shipSpeed > 1.0 && dist < 70.0 && phase % 6 = 0
                         | WeaponType.HellFire ->
                             // Wide flame spread when close
                             dist < 60.0 && aimed && phase % 3 = 0
                         | WeaponType.Machinegun ->
                             // Random offset shot for suppression
-                            aimed && inRange && phase % 4 = 0
+                            arcAimed && inRange && phase % 4 = 0
                         | WeaponType.Fan ->
                             // Fan arc when somewhat aimed
                             abs diff < 40.0 && dist < 120.0 && phase % 5 = 0
@@ -1489,13 +1988,14 @@ let cpuAI (gs: GameState) : GameState =
                             aimed && dist > 80.0 && phase % 7 = 0
                         | WeaponType.Mine ->
                             // Drop mine when falling or enemy is very close behind
-                            (abs diff > 120.0 && dist < 50.0) || (p.VelY > 0.5 && phase % 5 = 0)
+                            droppingClear
+                            && ((abs diff > 120.0 && dist < 50.0) || (p.VelY > 0.5 && phase % 5 = 0))
                         | WeaponType.ToxicDump ->
-                            // Drop toxic when standing still or enemy close
-                            dist < 40.0 && phase % 4 = 0
+                            // Drop toxic when the enemy is close (on the move)
+                            droppingClear && dist < 40.0 && phase % 4 = 0
                         | WeaponType.RubberBullets ->
                             // Single bouncing shot when aimed
-                            aimed && inRange && phase % 5 = 0
+                            rubberAimed && inRange && phase % 5 = 0
                         | WeaponType.Troopers ->
                             // Seed the ground when the enemy is closing in
                             dist < 150.0 && phase % 6 = 0
@@ -1513,12 +2013,62 @@ let cpuAI (gs: GameState) : GameState =
                             // fires an unimplemented one.
                             aimed && inRange && phase % 6 = 0
 
-                    { p with
-                        KeyUp = shouldThrust
-                        KeyLeft = turnLeft
-                        KeyRight = turnRight
-                        KeyFire = shouldFire
-                        KeyDown = useSpecial })
+                    let fight =
+                        { p with
+                            KeyUp = shouldThrust
+                            KeyLeft = turnLeft
+                            KeyRight = turnRight
+                            KeyFire = shouldFire
+                            KeyDown = useSpecial
+                            Repairing = false }
+
+                    // ── Enemy behind terrain: fly into open space toward it ──
+                    // When the line of sight to the enemy is blocked, head the
+                    // open compass direction (openDirections) closest to the
+                    // enemy's bearing instead of pushing into the rock. Not while
+                    // dodging a crossfire, hanging back for repairs, or keeping
+                    // clear of a frozen enemy; no open direction = as before.
+                    // Worked out only when the fight keys are actually used.
+                    //
+                    // ── Shot held because it would fall back on us ──
+                    // Enemy (nearly) straight overhead: slide sideways —
+                    // away from the enemy's side, or the other way if that is
+                    // walled — so the next shot can go up at an angle.
+                    let fightWithDetour () =
+                        let detour =
+                            match gs.Level with
+                            | Some level when wantedShotReturns && not (dodging && threatCount >= 2) ->
+                                let away = if dx >= 0.0 then -1.0 else 1.0
+                                let side = if clearPath level px py (px + away * 30.0) py then away else -away
+                                Some(steerToBase level p px py (px + side * 30.0) py)
+                            | Some level when
+                                not (holdBack || dodging && threatCount >= 2)
+                                && not (enemy.Flags.HasFlag PlayerFlags.Shield)
+                                && not (inSight level px py ex ey) ->
+                                let bearing =
+                                    let a = atan2 (-dx) (-dy) * 180.0 / Math.PI
+                                    if a < 0.0 then a + 360.0 else a
+                                let offBearing (a: float) = abs ((a - bearing + 540.0) % 360.0 - 180.0)
+                                openDirections level px py
+                                |> List.sortBy offBearing
+                                |> List.tryHead
+                                |> Option.map (fun a ->
+                                    let rad = degToRad (a + 90.0)
+                                    steerToBase level p px py (px + cos rad * 60.0) (py - sin rad * 60.0))
+                            | _ -> None
+                        match detour with
+                        | Some (left, right, thrust) -> { fight with KeyUp = thrust; KeyLeft = left; KeyRight = right }
+                        | None -> fight
+
+                    // ── Repair trip: dock on a base instead of chasing ──
+                    // Docked, the CPU is a turret: it aims and fires at the
+                    // enemy but never thrusts off the pad. An enemy too close
+                    // to dock means fight.
+                    let turret = { fight with KeyUp = false; KeyLeft = aimLeft; KeyRight = aimRight }
+                    if dist < CpuRepairEnemyClearance then fightWithDetour ()
+                    else
+                        repairTrip gs i p px py mayStartTrip true shouldFire turret
+                        |> Option.defaultWith fightWithDetour)
     { gs with Players = players }
 
 // ─── Main Game Tick ────────────────────────────────────────────────────

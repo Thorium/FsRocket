@@ -7,7 +7,7 @@
 ///   P2: Arrows/NumPad + RShift/Enter                           weapon switch = 8 back / 9 fwd
 ///   P3: T/F/H/G + Y                                            weapon switch = 4 back / 5 fwd
 ///   P4: I/J/L/K + B                                            weapon switch = 6 back / 7 fwd
-///   SPACE start · ESC reset · 1-4 players (menu) · F4 respawn-rule (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
+///   SPACE start · ESC reset · 1-4 players (menu) · F2 CPU level (menu) · F4 respawn-rule (menu) · F5/F6 level · F7/F8 CPU · F9 base-rule
 ///   Touch devices: P1 vs CPU, on-screen buttons feeding the same keys
 module FsRocket.Program
 
@@ -129,6 +129,19 @@ let mutable private viewH = 0
 /// just burns CPU/GPU.
 let mutable private needsRender = true
 
+/// HUD text never shows smaller than this many CSS pixels: on a phone the
+/// logical canvas is zoomed down (~0.8x), which made the 11 px HUD text and
+/// health bar hard to read. Touch screens get it larger still.
+[<Literal>]
+let private minHudTextCss = 11.0
+[<Literal>]
+let private minHudTextCssTouch = 14.0
+
+/// HUD scale for the renderer (1 = design size), and the resulting height of
+/// the HUD strip in CSS pixels (the touch controls sit just above it)
+let mutable private hudScale = 1.0
+let mutable private hudCssHeight = 0.0
+
 /// Size the canvas backing store from its displayed (CSS) size and derive the
 /// logical resolution. Called at startup and whenever the window is resized
 /// (including F11 fullscreen toggles, which fire a resize event).
@@ -152,6 +165,9 @@ let private resizeCanvas () =
             else zoomBase * boost
         viewW <- int (cw / zoom)
         viewH <- int (ch / zoom)
+        let minText = if touchMode then minHudTextCssTouch else minHudTextCss
+        hudScale <- max 1.0 (minText / (hudFontPx * zoom))
+        hudCssHeight <- floor (hudBaseHeight * hudScale) * zoom
         setCanvasW canvas (floor (cw * dpr))
         setCanvasH canvas (floor (ch * dpr))
         setCtxScale ctx (dpr * zoom)
@@ -475,6 +491,13 @@ let private menuKeyAction (code: string) =
     | "F10" -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
     // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
     | "F4" when not gs.RoundActive -> gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
+    // Toggle the CPU difficulty (Hard / Easy) — menu only, like F4
+    | "F2" when not gs.RoundActive ->
+        let next =
+            match gs.CpuDifficulty with
+            | Hard -> Easy
+            | Easy -> Hard
+        gs <- { gs with CpuDifficulty = next }
     | "F5" -> switchLevel -1
     | "F6" -> switchLevel 1
     | "F7" -> cpuCount <- max 0 (cpuCount - 1); applyPlayerCount ()
@@ -655,11 +678,17 @@ let private queryAll (selector: string) : obj[] = jsNative
 let private menuValueFields = queryAll "[data-value]"
 let private menuChoiceButtons = queryAll "[data-choice]"
 let mutable private shownPlaying = false
+/// The HUD height last published to CSS (--hud-h)
+let mutable private shownHudCssHeight = -1.0
 
 let private menuValue (name: string) =
     match name with
     | "level" -> match gs.Level with Some lv -> lv.Name | None -> "No terrain"
     | "cpu" -> string cpuCount
+    | "cpulevel" ->
+        match gs.CpuDifficulty with
+        | Easy -> "Easy"
+        | Hard -> "Hard"
     | "respawn" -> if gs.RespawnOnDeath then "ON" else "OFF"
     | "base" ->
         match gs.WeaponSwitch with
@@ -776,7 +805,11 @@ let rec private loop (ts: float) =
     if needsRender then
         // Touch layout: viewports only for the humans, not the CPU ships
         let views = if touchMode then humanCount else gs.NumPlayers
-        renderFrame ctx gs views paused confirmingQuit viewW viewH
+        renderFrame ctx gs views paused confirmingQuit viewW viewH hudScale
+        // The touch controls sit just above the HUD strip (styles.css --hud-h)
+        if hudCssHeight <> shownHudCssHeight then
+            setStyleVar (body ()) "--hud-h" $"{hudCssHeight}px"
+            shownHudCssHeight <- hudCssHeight
         syncMenuUi ()
         if gs.TerrainDirty then gs <- { gs with TerrainDirty = false }
         needsRender <- false

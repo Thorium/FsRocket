@@ -168,6 +168,14 @@ body.touch:not(.playing) #touch-menu {
     border-color: #90c0ff;
 }
 
+/* In a dialog the default (Space) action stays highlighted, but its text is
+   the same size as the button beside it; only the main menu's START is large */
+#quit-dialog .tm-start,
+#weapon-dialog .tm-start {
+    min-height: 40px;
+    font-size: 16px;
+}
+
 .tm-row {
     display: flex;
     align-items: center;
@@ -274,7 +282,8 @@ body.paused .tc-pause {
 
 /* Each human's control set fills the screen (1 player) or its own half of
    the split screen (2 players: P1 left, P2 right). Clusters sit just above
-   the HUD strip at the bottom of the viewport. */
+   the HUD strip at the bottom of the viewport (its on-screen height comes
+   from Program.fs as --hud-h; it grows on small screens). */
 .tc-player {
     position: absolute;
     inset: 0;
@@ -310,7 +319,7 @@ body.two-players .tc-p2 {
 /* Safe-area insets only on the outer screen edges, not the split line */
 .tc-turn {
     left: calc(var(--tc-edge) + env(safe-area-inset-left));
-    bottom: calc(40px + env(safe-area-inset-bottom));
+    bottom: calc(var(--hud-h, 28px) + 12px + env(safe-area-inset-bottom));
 }
 
 .tc-act, .tc-weapon {
@@ -326,11 +335,11 @@ body.two-players .tc-p2 .tc-turn {
 }
 
 .tc-act {
-    bottom: calc(40px + env(safe-area-inset-bottom));
+    bottom: calc(var(--hud-h, 28px) + 12px + env(safe-area-inset-bottom));
 }
 
 .tc-weapon {
-    bottom: calc(var(--tc-big) + 52px + env(safe-area-inset-bottom));
+    bottom: calc(var(--tc-big) + var(--hud-h, 28px) + 24px + env(safe-area-inset-bottom));
     gap: 8px;
 }
 
@@ -464,6 +473,12 @@ body.can-install .rotate-install, body.iphone-tab .rotate-ios {
     .game-menu .tm-start {
         min-height: 38px;
         font-size: 16px;
+    }
+
+    #quit-dialog .tm-start,
+    #weapon-dialog .tm-start {
+        min-height: 32px;
+        font-size: 14px;
     }
 }
 

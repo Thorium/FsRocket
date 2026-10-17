@@ -52,6 +52,9 @@ type Player =
       KillCount: int            // Kills (for scoreboard)
       DeathCount: int           // Deaths (for scoreboard)
       IsCpu: bool               // Is this a CPU-controlled player
+      Repairing: bool           // CPU: on a trip to a base, or parked there, to repair
+      RepairTick: int           // CPU: GameTick the last fight-time repair trip began (-1 = none this life)
+      TripTick: int             // CPU: GameTick the current repair trip began, or (docked) the last tick on the pad
       SpawnIndex: int           // Last spawn point index used (-1 = none)
       OnBase: bool }             // Resting on a base/landing pad this tick (heals, allows weapon switch)
 
@@ -96,6 +99,13 @@ type WeaponSwitchRule =
     /// the start, and nobody — CPU ships included — switches during the round
     | OnlyAtStart
 
+/// How hard the CPU ships play.
+type CpuDifficulty =
+    /// Same AI, but each CPU ship fires only about once a second
+    | Easy
+    /// The full AI at its natural fire rate (the default)
+    | Hard
+
 type GameState =
     { Players: Player list
       Entities: Entity list
@@ -103,6 +113,7 @@ type GameState =
       Rng: Random
       NumPlayers: int
       CpuCount: int               // Number of CPU-controlled players (last N players)
+      CpuDifficulty: CpuDifficulty  // Default: Hard; Easy = CPU ships fire only about once a second
       GameTick: int
       RoundActive: bool
       Level: Terrain.LevelData option

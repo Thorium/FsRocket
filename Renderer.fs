@@ -117,8 +117,12 @@ let private thrustColor = "rgb(255,160,32)"
 /// Landing pad / base — distinct green bar
 let private basePadArgb = (0xFF <<< 24) ||| (0x30 <<< 16) ||| (0xC0 <<< 8) ||| 0x60
 
+/// HUD text size in logical pixels at hudScale 1 (scaled up on small screens)
 [<Literal>]
-let private hudFont = "bold 11px Consolas, monospace"
+let hudFontPx = 11.0
+/// HUD strip height in logical pixels at hudScale 1
+[<Literal>]
+let hudBaseHeight = 36.0
 [<Literal>]
 let private bigFont = "bold 20px Consolas, monospace"
 [<Literal>]
@@ -302,9 +306,10 @@ let viewportLayout (numPlayers: int) (windowW: int) (windowH: int) =
 
 // ─── Draw a single player's viewport ─────────────────────────────────────
 // tcanvas is the terrain canvas already resolved for this frame (null when the
-// game runs without a level).
-let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) =
-    let hudH = 36
+// game runs without a level). hudScale enlarges the HUD strip (text, health
+// bar) so it stays readable where the logical canvas is shown small (phones).
+let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (vx: int) (vy: int) (vw: int) (vh: int) (hudScale: float) =
+    let hudH = int (hudBaseHeight * hudScale)
     let gameH = vh - hudH
     let p = gs.Players[playerIdx]
     let fvx, fvy, fvw, fgameH = float vx, float vy, float vw, float gameH
@@ -564,24 +569,30 @@ let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (v
     // ── HUD bar (separate clip) ──
     clipRect ctx fvx (fvy + fgameH) fvw (float hudH)
     fillRectC ctx fvx (fvy + fgameH) fvw (float hudH) hudBgColor
-    let hudY = fvy + fgameH + 2.0
+    // Every HUD size and offset is its hudScale-1 value times s
+    let s = hudScale
+    let hudFont = $"bold {hudFontPx * s}px Consolas, monospace"
+    let hudY = fvy + fgameH + 2.0 * s
     let specialName = (getWeapon p.SpecialWeapon).Name
     let name = if p.IsCpu then $"CPU{playerIdx + 1}" else $"P{playerIdx + 1}"
-    drawText ctx name (fvx + 4.0) hudY playerColors[playerIdx % 4] hudFont
+    drawText ctx name (fvx + 4.0 * s) hudY hudFont playerColors[playerIdx % 4]
     let healthPct = max 0.0 (float p.Health / float FullHealth)
     let barW = float (vw / 3)
-    let barX = fvx + 30.0
-    let barY = hudY + 2.0
-    fillRectC ctx barX barY barW 8.0 healthBgColor
+    let barX = fvx + 30.0 * s
+    let barY = hudY + 2.0 * s
+    let barH = 8.0 * s
+    fillRectC ctx barX barY barW barH healthBgColor
     let healthColor =
         if healthPct > 0.6 then "rgb(50,205,50)"
         elif healthPct > 0.3 then "rgb(255,255,0)"
         else "rgb(255,0,0)"
-    fillRectC ctx barX barY (barW * healthPct) 8.0 healthColor
-    drawText ctx $"CANNON  |  {specialName} [{p.Ammo}]" (fvx + 4.0) (hudY + 14.0) hudFont "rgb(255,255,255)"
+    fillRectC ctx barX barY (barW * healthPct) barH healthColor
+    let line2 = hudY + 14.0 * s
+    drawText ctx $"CANNON  |  {specialName} [{p.Ammo}]" (fvx + 4.0 * s) line2 hudFont "rgb(255,255,255)"
     if p.OnBase && p.Alive then
-        drawText ctx "BASE" (fvx + fvw - 36.0) (hudY + 14.0) hudFont "rgb(50,205,50)"
-    drawText ctx $"K:{p.KillCount} D:{p.DeathCount}" (barX + barW + 8.0) (hudY + 2.0) hudFont "rgb(255,255,255)"
+        setFontJs ctx hudFont
+        drawText ctx "BASE" (fvx + fvw - 4.0 * s - measureTextJs ctx "BASE") line2 hudFont "rgb(50,205,50)"
+    drawText ctx $"K:{p.KillCount} D:{p.DeathCount}" (barX + barW + 8.0 * s) (hudY + 2.0 * s) hudFont "rgb(255,255,255)"
     restore ctx
 
 // ─── Viewport border ─────────────────────────────────────────────────────
@@ -596,7 +607,8 @@ let drawBorder (ctx: obj) (vx: int) (vy: int) (vw: int) (vh: int) (idx: int) =
 /// dimmed: the menu itself is HTML (index.html).
 /// `confirming`: the "end the round?" prompt (HTML) is up over the round,
 /// which is dimmed like a pause but without the pause text.
-let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (confirming: bool) (windowW: int) (windowH: int) =
+/// `hudScale` enlarges each viewport's HUD strip (see drawPlayerView).
+let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (confirming: bool) (windowW: int) (windowH: int) (hudScale: float) =
     setSmoothing ctx false
     setBaseline ctx "top"
     fillRectC ctx 0.0 0.0 (float windowW) (float windowH) bgColor
@@ -613,7 +625,7 @@ let renderFrame (ctx: obj) (gs: GameState) (views: int) (paused: bool) (confirmi
     for i in 0 .. views - 1 do
         if i < layouts.Length then
             let (vx, vy, vw, vh) = layouts[i]
-            drawPlayerView ctx gs tcanvas i vx vy vw vh
+            drawPlayerView ctx gs tcanvas i vx vy vw vh hudScale
             drawBorder ctx vx vy vw vh i
 
     if gs.RoundActive && (paused || confirming) then
