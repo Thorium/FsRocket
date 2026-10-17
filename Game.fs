@@ -1419,6 +1419,14 @@ let private cellOpen (level: LevelData) (c: int) =
     [ 0.0, 0.0; 3.0, 0.0; -3.0, 0.0; 0.0, 3.0; 0.0, -3.0 ]
     |> List.forall (fun (dx, dy) -> not (Terrain.isWall (Terrain.terrainAt level.Pixels (x + dx) (y + dy))))
 
+/// Whether `cells` holds cell `c` — a plain loop: as fast as LINQ's Contains
+/// on .NET, and it also compiles under Fable (the web build has no System.Linq)
+let inline private hasCell (cells: int array) (c: int) =
+    let mutable found = false
+    for x in cells do
+        if x = c then found <- true
+    found
+
 /// Where to fly next (pixels) from (px, py) toward the nearest of `goals` the
 /// ship can reach, if any. A goal in plain sight is flown at directly;
 /// otherwise the nearest goal by route wins, and the waypoint is the farthest
@@ -1439,8 +1447,8 @@ let private routeStep (level: LevelData) (px: float) (py: float) (goals: (float 
         let parent = routeParent
         let isOpen = routeOpen
         let queue = routeQueue
-        Array.Fill(parent, -2)
-        Array.Fill(isOpen, 0uy)
+        Array.fill parent 0 parent.Length -2
+        Array.fill isOpen 0 isOpen.Length 0uy
         queue.Clear()
         let openAt c =
             if isOpen[c] = 0uy then isOpen[c] <- if cellOpen level c then 1uy else 2uy
@@ -1451,13 +1459,13 @@ let private routeStep (level: LevelData) (px: float) (py: float) (goals: (float 
         let mutable found = -1
         while found < 0 && queue.Count > 0 do
             let c = queue.Dequeue()
-            if System.Linq.Enumerable.Contains(goalCells, c) then found <- c
+            if hasCell goalCells c then found <- c
             else
                 let cx, cy = c % routeW, c / routeW
                 for nx, ny in [ cx - 1, cy; cx + 1, cy; cx, cy - 1; cx, cy + 1 ] do
                     if nx >= 0 && nx < routeW && ny >= 0 && ny < routeH then
                         let nc = ny * routeW + nx
-                        if parent[nc] = -2 && (System.Linq.Enumerable.Contains(goalCells, nc) || openAt nc) then
+                        if parent[nc] = -2 && (hasCell goalCells nc || openAt nc) then
                             parent[nc] <- c
                             queue.Enqueue nc
         if found < 0 then None
