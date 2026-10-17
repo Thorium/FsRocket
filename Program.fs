@@ -13,6 +13,7 @@
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Cycle the weapon-switch rule (on a base / anytime / game start)
 ///   F1: Keys & controls screen (menu only)
+///   F2: Toggle the CPU level (menu only) — Hard (default) / Easy = CPU ships fire about once a second
 ///   F4: Toggle "respawn on death" (menu only) — off = last ship flying wins the round
 ///   F5/F6: Prev/next level
 ///   F10: Toggle gamepad input (pads claim players in order; keyboard stays active)
@@ -139,7 +140,7 @@ let private connectedPads () : PadInput[] =
 /// Keys with one-shot actions, by the code the actions are written in (menu
 /// buttons send the same codes).
 let private keyCodes =
-    [ Keys.Escape, "Escape"; Keys.Space, "Space"; Keys.F1, "F1"; Keys.F4, "F4"
+    [ Keys.Escape, "Escape"; Keys.Space, "Space"; Keys.F1, "F1"; Keys.F2, "F2"; Keys.F4, "F4"
       Keys.F5, "F5"; Keys.F6, "F6"; Keys.F7, "F7"; Keys.F8, "F8"; Keys.F9, "F9"
       Keys.F10, "F10"; Keys.F11, "F11"
       Keys.D1, "Digit1"; Keys.D2, "Digit2"; Keys.D3, "Digit3"; Keys.D4, "Digit4"; Keys.D5, "Digit5"
@@ -321,6 +322,14 @@ type FsRocketGame() as this =
         | "F10" -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
         // F4 toggles "respawn on death" — menu only, so the rule can't flip mid-round
         | "F4" -> if not gs.RoundActive then gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
+        // F2 toggles the CPU difficulty (Hard / Easy) — menu only, like F4
+        | "F2" ->
+            if not gs.RoundActive then
+                let next =
+                    match gs.CpuDifficulty with
+                    | Hard -> Easy
+                    | Easy -> Hard
+                gs <- { gs with CpuDifficulty = next }
         | "F5" -> switchLevel -1
         | "F6" -> switchLevel 1
         | "F7" ->

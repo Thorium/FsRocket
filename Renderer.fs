@@ -979,7 +979,11 @@ type MenuView =
 type ButtonKind =
     | Plain
     | Selected
+    /// The default (Space) action of a dialog: highlighted, text the same
+    /// size as the buttons beside it
     | Primary
+    /// The main menu's START: looks like Primary, with large text
+    | Hero
 
 type MenuElement =
     | Panel of Rectangle
@@ -1005,9 +1009,15 @@ let weaponRuleName (rule: WeaponSwitchRule) =
     | Anytime -> "Anytime"
     | OnlyAtStart -> "Game start"
 
+/// The CPU difficulty as the menu names it.
+let cpuDifficultyName (difficulty: CpuDifficulty) =
+    match difficulty with
+    | Easy -> "Easy"
+    | Hard -> "Hard"
+
 let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) =
     let pw, rowH = 500, 34
-    let ph = 74 + 44 + 6 * rowH + 48 + 22
+    let ph = 74 + 44 + 7 * rowH + 48 + 22
     let px, py = (windowW - pw) / 2, (windowH - ph) / 2
     let lx, cx0, cw = px + 16, px + 250, 234   // label column, control column
     let row k = py + 74 + 44 + k * rowH
@@ -1020,7 +1030,7 @@ let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: i
     let levelName = match gs.Level with Some lv -> lv.Name | None -> "No terrain"
     [ yield Panel(Rectangle(px, py, pw, ph))
       yield centredLabel (px + pw / 2) (py + 16) "FsRocket" Color.White 4
-      yield Button(Rectangle(px + 16, py + 66, pw - 32, 36), "START", "Space", "Space", Primary)
+      yield Button(Rectangle(px + 16, py + 66, pw - 32, 36), "START", "Space", "Space", Hero)
       yield! labelWithKey lx (row 0 + 6) "Players" "1-4"
       let bw = (cw - 3 * 8) / 4
       for n in 1 .. 4 do
@@ -1030,13 +1040,15 @@ let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: i
       yield! stepper (row 1) levelName "F5" "F6" "<" ">"
       yield! labelWithKey lx (row 2 + 6) "CPU ships" "F7/F8"
       yield! stepper (row 2) (string gs.CpuCount) "F7" "F8" "-" "+"
-      yield! labelWithKey lx (row 3 + 6) "Respawn" "F4"
-      yield toggle (row 3) (onOff gs.RespawnOnDeath) "F4"
-      yield! labelWithKey lx (row 4 + 6) "Weapon switch" "F9"
-      yield toggle (row 4) (weaponRuleName gs.WeaponSwitch) "F9"
-      yield! labelWithKey lx (row 5 + 6) "Gamepads" "F10"
-      yield toggle (row 5) (onOff gs.GamepadsEnabled) "F10"
-      yield Button(Rectangle(px + 16, row 6 + 8, pw - 32, 30), "Keys & controls", "F1", "F1", Plain)
+      yield! labelWithKey lx (row 3 + 6) "CPU level" "F2"
+      yield toggle (row 3) (cpuDifficultyName gs.CpuDifficulty) "F2"
+      yield! labelWithKey lx (row 4 + 6) "Respawn" "F4"
+      yield toggle (row 4) (onOff gs.RespawnOnDeath) "F4"
+      yield! labelWithKey lx (row 5 + 6) "Weapon switch" "F9"
+      yield toggle (row 5) (weaponRuleName gs.WeaponSwitch) "F9"
+      yield! labelWithKey lx (row 6 + 6) "Gamepads" "F10"
+      yield toggle (row 6) (onOff gs.GamepadsEnabled) "F10"
+      yield Button(Rectangle(px + 16, row 7 + 8, pw - 32, 30), "Keys & controls", "F1", "F1", Plain)
       yield centredLabel (px + pw / 2) (py + ph - 16) "Esc: quit   F11: fullscreen" menuDim 1 ]
 
 let private keysScreen (windowW: int) (windowH: int) =
@@ -1123,19 +1135,19 @@ let private drawMenu (sb: SpriteBatch) (res: RenderResources) (elements: MenuEle
             let hover = r.Contains mouse
             let fill, border, ink =
                 match kind with
-                | Primary -> Color(0x8C, 0xB8, 0xFF), Color(0xC0, 0xD8, 0xFF), Color(0x10, 0x18, 0x30)
+                | Primary | Hero -> Color(0x8C, 0xB8, 0xFF), Color(0xC0, 0xD8, 0xFF), Color(0x10, 0x18, 0x30)
                 | Selected -> Color(0x5A, 0x48, 0x10), menuGold, menuGold
                 | Plain -> Color(0x26, 0x26, 0x3A), Color(0x50, 0x50, 0x70), menuText
             let fill = if hover then Color.Lerp(fill, Color.White, 0.18f) else fill
             drawRect sb res.Pixel r.X r.Y r.Width r.Height fill
             frame r border
-            let scale = if kind = Primary then 3 else 2
+            let scale = if kind = Hero then 3 else 2
             let tw, th = measureText text scale
             let kw = if key = "" then 0 else fst (measureText key 1) + 8
             let tx = r.X + (r.Width - tw - kw) / 2
             drawText sb res.FontTexture text tx (r.Y + (r.Height - th) / 2) ink scale
             if key <> "" then
-                let keyInk = if kind = Primary then Color(0x30, 0x40, 0x70) else menuDim
+                let keyInk = if kind = Primary || kind = Hero then Color(0x30, 0x40, 0x70) else menuDim
                 drawText sb res.FontTexture key (tx + tw + 8) (r.Y + (r.Height - 8) / 2 + 1) keyInk 1
 
 // ─── Render full frame ─────────────────────────────────────────────────
