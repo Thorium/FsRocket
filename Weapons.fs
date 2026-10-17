@@ -11,7 +11,7 @@ type EntityType =
     | Mine           = 7    // proximity mine
     | NoOp           = 8    // placeholder / no-op
     | Exploding      = 9    // exploding projectile (dirtclod)
-    | EMP            = 10   // headspinner/EMP stun
+    | EMP            = 10   // headspinner EMP (spins the ship it hits)
     | Shield         = 11   // shield / nucleus orbiter
     | Ricochet       = 12   // rubber bullet (bounces off walls)
     | PassThrough    = 14   // pass-through (clears shield on hit)
@@ -99,24 +99,26 @@ let weapons = [|
     { Name = "MULTICANNON";  ReloadTicks = 10;  Damage = 3;  CollisionRadius = 96
       ProjectileSpeed = 4.0;   EntityType = EntityType.Bullet; Enabled = true }
 
-    // #5 — RUBBER BLTS (24 bullets in full circle, 15° apart)
-    { Name = "RUBBER BLTS";  ReloadTicks = 10;  Damage = 2;  CollisionRadius = 96
+    // #5 — RUBBER BLTS (bouncing bullet; hits each ship once, about cannon damage)
+    { Name = "RUBBER BLTS";  ReloadTicks = 10;  Damage = 7;  CollisionRadius = 96
       ProjectileSpeed = 3.5;   EntityType = EntityType.Ricochet; Enabled = true }
 
     // #6 — MINE (proximity, larger radius, arms after 25 ticks)
     { Name = "MINE";         ReloadTicks = 30;  Damage = 30; CollisionRadius = 128
       ProjectileSpeed = 0.0;   EntityType = EntityType.Mine;   Enabled = true }
 
-    // #7 — NUCLEUS (slow drifting freeze orb — area denial in front of the ship)
-    { Name = "NUCLEUS";      ReloadTicks = 30;  Damage = 2;  CollisionRadius = 96
-      ProjectileSpeed = 1.2;   EntityType = EntityType.Shield; Enabled = true }
+    // #7 — NUCLEUS (orbiters circling the ship: each one hits an enemy ship it
+    // touches, or stops one enemy round, and is spent)
+    { Name = "NUCLEUS";      ReloadTicks = 60;  Damage = 6;  CollisionRadius = 96
+      ProjectileSpeed = 0.0;   EntityType = EntityType.Shield; Enabled = true }
 
-    // #8 — DIRTCLOD (lobbed with gravity, explodes on impact)
-    { Name = "DIRTCLOD";     ReloadTicks = 25;  Damage = 4;  CollisionRadius = 96
+    // #8 — DIRTCLOD (lobbed with gravity, bursts into a small blast on impact;
+    // Damage is the damage of a direct hit)
+    { Name = "DIRTCLOD";     ReloadTicks = 25;  Damage = 10; CollisionRadius = 96
       ProjectileSpeed = 3.0;   EntityType = EntityType.Exploding; Enabled = true }
 
-    // #9 — HEADSPINNER (EMP/stun, adds StunDurationPerHit ticks of stun; slow
-    // reload — a stun is a strong setup, not a spammable lockdown)
+    // #9 — HEADSPINNER (EMP shot; a hit spins the ship for SpinDurationPerHit
+    // ticks: it turns on its own but can still thrust and fire)
     { Name = "HEADSPINNER";  ReloadTicks = 70;  Damage = 0;  CollisionRadius = 96
       ProjectileSpeed = 3.5;   EntityType = EntityType.EMP;    Enabled = true }
 
@@ -149,12 +151,12 @@ let weapons = [|
     { Name = "FAN";          ReloadTicks = 1;   Damage = 0;  CollisionRadius = 96
       ProjectileSpeed = 6.0;   EntityType = EntityType.None;   Enabled = false }
 
-    // #17 — TOXIC DUMP (area denial, persisting flame pool)
-    { Name = "TOXIC DUMP";   ReloadTicks = 90;  Damage = 1;  CollisionRadius = 96
+    // #17 — TOXIC DUMP (area denial, a toxic cloud left where the ship is)
+    { Name = "TOXIC DUMP";   ReloadTicks = 90;  Damage = 4;  CollisionRadius = 96
       ProjectileSpeed = 0.0;   EntityType = EntityType.Flame;  Enabled = true }
 
-    // #18 — DUMBFIRE (fast unguided rocket, large radius)
-    { Name = "DUMBFIRE";     ReloadTicks = 60;  Damage = 6;  CollisionRadius = 192
+    // #18 — DUMBFIRE (fast unguided rocket, large radius; flat damage)
+    { Name = "DUMBFIRE";     ReloadTicks = 60;  Damage = 10; CollisionRadius = 192
       ProjectileSpeed = 6.0;   EntityType = EntityType.Heavy;  Enabled = true }
 
     // #19 — MISSILE (homing, turns toward nearest enemy)
@@ -182,11 +184,43 @@ let getWeapon (wt: WeaponType) =
 [<Literal>]
 let bulletDamage = 5
 
-/// Atom round arming time: the heavy projectile must fly this many ticks
-/// before a wall or ship impact detonates the nuke. Earlier hits fizzle, so
-/// the nuke can't be point-blank detonated in someone's (or your own) face.
+/// Hell Fire: flame lifetime in ticks. With the flame's drag this sets its
+/// reach: about 60 px at 3.5 px/tick, inside a split-screen view (64 px
+/// from the ship to the side edge).
 [<Literal>]
-let atomArmTicks = 25
+let flameLifeTicks = 21
+
+/// Nucleus: orbiters per shot. A new shot replaces the ship's old orbiters.
+[<Literal>]
+let nucleusOrbiters = 3
+
+/// Nucleus: orbit radius around the ship's centre, in pixels
+[<Literal>]
+let nucleusOrbitRadius = 10.0
+
+/// Nucleus: orbit speed in degrees per tick
+[<Literal>]
+let nucleusOrbitSpeed = 8.0
+
+/// Nucleus: orbiter lifetime in ticks
+[<Literal>]
+let nucleusLifeTicks = 360
+
+/// Dirtclod: blast radius in pixels (the blast grows to this, then ends)
+[<Literal>]
+let dirtclodBlastRadius = 12.0
+
+/// Dirtclod: damage of the blast to a ship inside it
+[<Literal>]
+let dirtclodBlastDamage = 8
+
+/// Toxic dump: cloud radius in pixels (also its hit radius)
+[<Literal>]
+let toxicRadius = 12.0
+
+/// Toxic dump: cloud lifetime in ticks
+[<Literal>]
+let toxicLifeTicks = 360
 
 /// Trooper: ticks between the upward shots of a dug-in trooper
 [<Literal>]

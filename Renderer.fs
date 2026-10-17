@@ -399,6 +399,13 @@ let drawPlayerView (ctx: obj) (gs: GameState) (tcanvas: obj) (playerIdx: int) (v
                 if armed then
                     lineSeg ctx (ex - sz / 2.0) ey (ex + sz / 2.0) ey 1.0 (cssRGBA 255 255 64 alpha)
                     lineSeg ctx ex (ey - sz / 2.0) ex (ey + sz / 2.0) 1.0 (cssRGBA 255 255 64 alpha)
+            | EntityType.Flame when ent.WeaponIdx = WeaponType.ToxicDump ->
+                // Toxic cloud: a pulsing green haze the size of its hit radius
+                let tR = max 2.0 (ent.Radius * scaleF)
+                let pulse = 0.5 + 0.5 * sin (float ent.Timer * 0.15)
+                fillCircle ctx ex ey tR (cssRGBA 64 192 32 (50 + int (30.0 * pulse)))
+                fillCircle ctx ex ey (tR * 2.0 / 3.0) (cssRGBA 128 255 64 (40 + int (30.0 * pulse)))
+                strokeCircle ctx ex ey tR 1.0 (cssRGBA 96 255 48 110)
             | EntityType.Flame ->
                 let fTimer = max 1 (abs ent.Timer)
                 let fSize = max 2.0 (float fTimer * scaleF / 3.0)

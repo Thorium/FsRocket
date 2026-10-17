@@ -36,7 +36,7 @@ let defaultEntity : Entity =
     { X = 0.0; Y = 0.0; Timer = 0; SubType = 0
       VelX = 0.0; VelY = 0.0
       EType = EntityType.None; Owner = 0
-      Radius = 0.0; WeaponIdx = WeaponType.NoWeapon }
+      Radius = 0.0; HitMask = 0; WeaponIdx = WeaponType.NoWeapon }
 
 let defaultParticle : Particle =
     { X = 0.0; Y = 0.0; VelX = 0.0; VelY = 0.0
@@ -119,12 +119,19 @@ let placeForMenu (gs: GameState) : GameState =
 
 // ─── Spawn a bullet/projectile — returns new entity to add ─────────────
 
+/// Rounds leave the ship this far out from its centre along the shot: the
+/// nose length of the hull (ShipNoseLen). A ship resting on the ground has
+/// its centre within a pixel of the rock, so a round fired from the centre
+/// would meet the floor on its first step.
+[<Literal>]
+let MuzzleOffset = 4.0
+
 let makeProjectile (p: Player) (owner: int) (weaponIdx: WeaponType) : Entity =
     let w = getWeapon weaponIdx
     let rad = degToRad (p.Angle + 90.0)
     { defaultEntity with
-        X = p.PosX / PositionScale
-        Y = p.PosY / PositionScale
+        X = p.PosX / PositionScale + cos rad * MuzzleOffset
+        Y = p.PosY / PositionScale - sin rad * MuzzleOffset
         VelX = cos rad * w.ProjectileSpeed
         VelY = -(sin rad) * w.ProjectileSpeed
         EType = w.EntityType
@@ -135,8 +142,8 @@ let makeProjectileAngled (p: Player) (owner: int) (weaponIdx: WeaponType) (angle
     let w = getWeapon weaponIdx
     let rad = degToRad (p.Angle + 90.0 + angleOffset)
     { defaultEntity with
-        X = p.PosX / PositionScale
-        Y = p.PosY / PositionScale
+        X = p.PosX / PositionScale + cos rad * MuzzleOffset
+        Y = p.PosY / PositionScale - sin rad * MuzzleOffset
         VelX = cos rad * w.ProjectileSpeed
         VelY = -(sin rad) * w.ProjectileSpeed
         EType = w.EntityType

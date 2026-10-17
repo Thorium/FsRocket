@@ -63,6 +63,8 @@ Deployment to GitHub Pages (https://thorium.github.io/FsRocket/) is automated by
 
 **Gamepads:** connected gamepads (W3C standard mapping) claim human players in order — pad 1 drives P1, pad 2 drives P2, and so on; remaining players keep their keyboard mappings, and the keyboard also stays active for pad-driven players. Left stick / D-Pad = turn, `A` (or D-Pad up) = thrust, `B`/`RT` = fire, `X`/`LT` = special, `LB`/`RB` = cycle weapon, `Start` = begin round. Useful on membrane keyboards, whose limited key rollover can't report 3-4 players' simultaneous keys. `F10` toggles gamepad input off/on entirely (e.g. to ignore a drifting controller that is left connected).
 
+With the on-a-base and anytime weapon-switch rules every ship starts the round with a random special.
+
 Cannon-type rounds (cannon, multicannon, machinegun, rubber bullets, rear turret) carry your ship's own motion: shots fired ahead while flying go faster and further, shots fired while backing away fall short. They also drop quickly under gravity, so long shots need to be lobbed.
 
 **Global keys:** `1`-`4` set the player count (in the menu), `F4` toggles "respawn on death" (in the menu — when off, destroyed ships stay dead and the round ends when at most one ship is left flying), `F5`/`F6` cycle the loaded levels, `F7`/`F8` add/remove CPU players, `F2` toggles the CPU level (in the menu — **Hard**, the default, is the full AI; **Easy** is the same AI firing only about once a second), `F9` cycles the weapon-switch rule (on a base / anytime / game start), `F10` toggles gamepad input, `Space` starts a round, `Escape` resets to the menu.
