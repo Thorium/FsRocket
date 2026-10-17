@@ -57,6 +57,7 @@ let private discoverLevels () : string array =
 let levelFiles = discoverLevels ()
 
 /// The level the game opens on: wide open space, gentle for new pilots.
+[<Literal>]
 let private startLevel = "VIIDAKKO"
 
 let tryLoadLevel (gs: GameState) (name: string) : GameState option =
@@ -110,11 +111,11 @@ let private weaponChoiceOptions = Array.append [| RandomWeapon |] (specialWeapon
 /// The code a key's one-shot action is written in (menu buttons send the same).
 let private keyCode (key: Keys) =
     match key with
-    | Keys.Escape -> Some "Escape"
-    | Keys.Space -> Some "Space"
-    | Keys.F1 | Keys.F2 | Keys.F4 | Keys.F5 | Keys.F6 | Keys.F7 | Keys.F8 | Keys.F9 | Keys.F10 | Keys.F11 -> Some(string key)
-    | _ when key >= Keys.D1 && key <= Keys.D9 -> Some $"Digit{int key - int Keys.D0}"
-    | _ -> None
+    | Keys.Escape -> ValueSome "Escape"
+    | Keys.Space -> ValueSome "Space"
+    | Keys.F1 | Keys.F2 | Keys.F4 | Keys.F5 | Keys.F6 | Keys.F7 | Keys.F8 | Keys.F9 | Keys.F10 | Keys.F11 -> ValueSome(string key)
+    | _ when key >= Keys.D1 && key <= Keys.D9 -> ValueSome $"Digit{int key - int Keys.D0}"
+    | _ -> ValueNone
 
 // ─── Gamepads (XInput) ─────────────────────────────────────────────────
 // Connected gamepads claim human player slots in order: pad 1 drives P1,
@@ -443,8 +444,8 @@ type GameForm() as this =
         if not (heldKeys.Contains e.KeyCode) then
             heldKeys.Add e.KeyCode |> ignore
             match keyCode e.KeyCode with
-            | Some code -> this.KeyAction code
-            | None -> ()
+            | ValueSome code -> this.KeyAction code
+            | ValueNone -> ()
         base.OnKeyDown e
 
     /// Mouse position in the menu's logical pixels.

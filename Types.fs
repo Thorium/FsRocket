@@ -53,7 +53,8 @@ type Player =
       DeathCount: int           // Deaths (for scoreboard)
       IsCpu: bool               // Is this a CPU-controlled player
       Repairing: bool           // CPU: on a trip to a base, or parked there, to repair
-      RepairTick: int           // CPU: GameTick the last repair trip began (-1 = none this round)
+      RepairTick: int           // CPU: GameTick the last fight-time repair trip began (-1 = none this life)
+      TripTick: int             // CPU: GameTick the current repair trip began, or (docked) the last tick on the pad
       SpawnIndex: int           // Last spawn point index used (-1 = none)
       OnBase: bool }             // Resting on a base/landing pad this tick (heals, allows weapon switch)
 

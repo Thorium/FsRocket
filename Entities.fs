@@ -29,7 +29,7 @@ let createPlayer (index: int) : Player =
       AnimAngle = 0.0; BlackholeCounter = 1
       InvTimer = SpawnInvincibilityTicks; WallDmgCooldown = 0
       KillCount = 0; DeathCount = 0; IsCpu = false; SpawnIndex = -1
-      Repairing = false; RepairTick = -1
+      Repairing = false; RepairTick = -1; TripTick = -1
       OnBase = false }
 
 let defaultEntity : Entity =
@@ -77,7 +77,10 @@ let private placeAtSpawn (sx: int) (sy: int) (spawnIdx: int) (p: Player) : Playe
         SpecialReloadTimer = 0
         AnimAngle = 0.0
         SpawnIndex = spawnIdx
+        // A new life starts a fresh repair allowance (no once-a-minute wait)
         Repairing = false
+        RepairTick = -1
+        TripTick = -1
         OnBase = false }, spawnIdx
 
 /// Choose a spawn pixel, using `chooseBase` when the level has bases and falling

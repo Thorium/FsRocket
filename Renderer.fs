@@ -125,23 +125,29 @@ let mutable private terrainBitmapLevel: string = ""
 
 /// Paint level pixels into the bitmap over an inclusive rect using the VGA
 /// palette (LockBits on just that sub-rectangle).
+///
+/// Copies exactly w pixels per row. The locked data's Stride is the FULL
+/// bitmap row, so Scan0 points into the bitmap itself: one Stride*h block copy
+/// would blank every pixel right of the rect (and left of it on the next row)
+/// and, for a rect touching the bottom row, write past the end of the bitmap's
+/// native buffer — heap corruption that crashed the runtime.
 let private paintTerrainRect (bmp: Bitmap) (level: LevelData) (x0: int) (y0: int) (x1: int) (y1: int) =
     let w = x1 - x0 + 1
     let h = y1 - y0 + 1
     let bmpData = bmp.LockBits(Rectangle(x0, y0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb)
-    let strideInts = bmpData.Stride / 4  // stride in int32 units
-    let buf = Array.zeroCreate<int> (strideInts * h)
-    let basePadArgb = basePadColor.ToArgb()
-    for y in 0 .. h - 1 do
-        let srcRow = (y0 + y) * MapWidth + x0
-        let dstRow = y * strideInts
-        for x in 0 .. w - 1 do
-            let pixel = level.Pixels[srcRow + x]
-            // Bases (landing pads) get a fixed, recognizable colour instead of the raw
-            // palette shades so players can spot where to land, heal and swap weapons.
-            buf[dstRow + x] <- if isBase pixel then basePadArgb else vgaPalette[int pixel]
-    Marshal.Copy(buf, 0, bmpData.Scan0, buf.Length)
-    bmp.UnlockBits bmpData
+    try
+        let row = Array.zeroCreate<int> w
+        let basePadArgb = basePadColor.ToArgb()
+        for y in 0 .. h - 1 do
+            let srcRow = (y0 + y) * MapWidth + x0
+            for x in 0 .. w - 1 do
+                let pixel = level.Pixels[srcRow + x]
+                // Bases (landing pads) get a fixed, recognizable colour instead of the raw
+                // palette shades so players can spot where to land, heal and swap weapons.
+                row[x] <- if isBase pixel then basePadArgb else vgaPalette[int pixel]
+            Marshal.Copy(row, 0, bmpData.Scan0 + nativeint (y * bmpData.Stride), w)
+    finally
+        bmp.UnlockBits bmpData
 
 /// Resolve the terrain bitmap for this frame — full rebuild on level change,
 /// dirty-rect patch while terrain is being carved, otherwise the cache as-is.
@@ -718,7 +724,11 @@ type MenuView =
 type ButtonKind =
     | Plain
     | Selected
+    /// The default (Space) action of a dialog: highlighted, text the same
+    /// size as the buttons beside it
     | Primary
+    /// The main menu's START: looks like Primary, with large text
+    | Hero
 
 type MenuElement =
     | Panel of Rectangle
@@ -765,7 +775,7 @@ let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: i
     let levelName = match gs.Level with Some lv -> lv.Name | None -> "No terrain"
     [ yield Panel(Rectangle(px, py, pw, ph))
       yield centredLabel (px + pw / 2) (py + 16) "FsRocket" Color.White 4
-      yield Button(Rectangle(px + 16, py + 66, pw - 32, 36), "START", "Space", "Space", Primary)
+      yield Button(Rectangle(px + 16, py + 66, pw - 32, 36), "START", "Space", "Space", Hero)
       yield! labelWithKey lx (row 0 + 6) "Players" "1-4"
       let bw = (cw - 3 * 8) / 4
       for n in 1 .. 4 do
@@ -884,18 +894,18 @@ let drawMenu (g: Graphics) (elements: MenuElement list) (mouse: Point) =
             let hover = r.Contains mouse
             let back, border, ink =
                 match kind with
-                | Primary -> Color.FromArgb(0x8C, 0xB8, 0xFF), Color.FromArgb(0xC0, 0xD8, 0xFF), Color.FromArgb(0x10, 0x18, 0x30)
+                | Primary | Hero -> Color.FromArgb(0x8C, 0xB8, 0xFF), Color.FromArgb(0xC0, 0xD8, 0xFF), Color.FromArgb(0x10, 0x18, 0x30)
                 | Selected -> Color.FromArgb(0x5A, 0x48, 0x10), menuGold, menuGold
                 | Plain -> Color.FromArgb(0x26, 0x26, 0x3A), Color.FromArgb(0x50, 0x50, 0x70), menuText
             fill r (if hover then lerp back Color.White 0.18f else back)
             frame r border
-            let scale = if kind = Primary then 3 else 2
+            let scale = if kind = Hero then 3 else 2
             let tw, th = measureText text scale
             let kw = if key = "" then 0 else fst (measureText key 1) + 8
             let tx = r.X + (r.Width - tw - kw) / 2
             drawMenuText g text tx (r.Y + (r.Height - th) / 2) ink scale
             if key <> "" then
-                let keyInk = if kind = Primary then Color.FromArgb(0x30, 0x40, 0x70) else menuDim
+                let keyInk = if kind = Primary || kind = Hero then Color.FromArgb(0x30, 0x40, 0x70) else menuDim
                 drawMenuText g key (tx + tw + 8) (r.Y + (r.Height - 8) / 2 + 1) keyInk 1
     g.TextRenderingHint <- previous
 

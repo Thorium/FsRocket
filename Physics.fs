@@ -90,6 +90,29 @@ let SpecialFireRecoil = 0.3
 [<Literal>]
 let CannonRecoilFraction = 0.3
 
+/// Fraction of the firing ship's velocity that cannon-type rounds (cannon,
+/// multicannon, machinegun, rubber bullets, rear turret) inherit on top of
+/// their muzzle speed: 0.0 = rounds ignore the ship's motion, 1.0 = full
+/// Newtonian (the default): a full-speed ship (2 px/tick) adds up to 2 px/tick
+/// to a 4 px/tick shot — longer reach firing ahead, shorter firing behind.
+[<Literal>]
+let BulletInheritVelocity = 1.0
+
+/// Gravity on cannon-type bullets (cannon, multicannon, machinegun), px/tick² —
+/// far stronger than on ships, so a 4 px/tick shot reaches only ~128 px over
+/// level ground (v²/g). The CPU's arc aim solves against this value.
+[<Literal>]
+let BulletGravity = 0.125
+
+/// Gravity on light rounds: rubber bullets, rear-turret rounds, freezer orbs
+[<Literal>]
+let LightRoundGravity = 0.04
+
+/// Gravity on the Nucleus freeze orb, which barely sinks: it is meant to
+/// float ahead as area denial
+[<Literal>]
+let FreezeOrbGravity = 0.005
+
 /// Momentum model for plain-bullet hits: treating the firing recoil as 100%
 /// of the bullet's momentum, the ship it strikes receives this fraction as a
 /// push in the bullet's travel direction. Full value at muzzle speed, scaled
