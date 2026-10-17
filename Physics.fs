@@ -108,11 +108,6 @@ let BulletGravity = 0.125
 [<Literal>]
 let LightRoundGravity = 0.04
 
-/// Gravity on the Nucleus freeze orb, which barely sinks: it is meant to
-/// float ahead as area denial
-[<Literal>]
-let FreezeOrbGravity = 0.005
-
 /// Momentum model for plain-bullet hits: treating the firing recoil as 100%
 /// of the bullet's momentum, the ship it strikes receives this fraction as a
 /// push in the bullet's travel direction. Full value at muzzle speed, scaled
@@ -182,10 +177,26 @@ let DefaultFPS = 36.0
 [<Literal>]
 let SpawnInvincibilityTicks = 16
 
-/// Stun duration added per stun hit (~1.5 s at 36 FPS). Long enough to set up
-/// a punish, short enough that one EMP tag is not a guaranteed kill.
+/// Immunity after a weapon hit: blocks the rest of the same tick's hits and
+/// the next tick's, so a burst of rounds arriving together counts once.
+/// Blasts, rings and rubber bullets hit each ship once (Entity.HitMask);
+/// toxic clouds and blackholes once per PeriodicHitTicks.
 [<Literal>]
-let StunDurationPerHit = 55
+let HitImmunityTicks = 2
+
+/// How often a toxic cloud or a blackhole can hit the same ship, in ticks
+[<Literal>]
+let PeriodicHitTicks = 16
+
+/// Spin time added per Headspinner hit (~1.5 s at 36 FPS). The hit ship
+/// spins on its own and ignores the turn keys, but can still thrust and fire.
+[<Literal>]
+let SpinDurationPerHit = 55
+
+/// How fast a Headspinner hit spins the ship, degrees per tick (the turn
+/// keys turn TurnSpeed); one hit spins it about two full turns
+[<Literal>]
+let SpinRate = 14.0
 
 // ─── Health ────────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ type PlayerFlags =
     | Active     = 0x08uy   // Player is in the game
     | Shield     = 0x10uy   // Shield active (blocks ALL input)
     | Drunk      = 0x20uy   // Disoriented / drunk effect
-    | Stunned    = 0x40uy   // Stunned / cloaked
+    | Stunned    = 0x40uy   // Spinning after a Headspinner hit (StunTimer ticks)
 
 // ─── Player Record ────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ type Player =
       ShotCount: int            // Total shots fired
       WallHitCount: int         // Wall collision damage count
       CloakAngle: float         // Cloaker distortion
-      StunTimer: int            // Stun countdown
+      StunTimer: int            // Headspinner spin countdown
       Alive: bool
       AnimAngle: float          // Animation timer (+=2, wraps 360)
       BlackholeCounter: int     // Blackhole weapon counter (1..5)
@@ -70,6 +70,7 @@ type Entity =
       EType: EntityType         // Entity type
       Owner: int                // Owner player index
       Radius: float             // Expanding entities: current blast/effect radius
+      HitMask: int              // Persisting entities: bit i set = already hit player i
       WeaponIdx: WeaponType }   // Which weapon spawned this
 
 // ─── Particle (for death debris / explosions) ─────────────────────────

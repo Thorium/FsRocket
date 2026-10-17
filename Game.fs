@@ -56,6 +56,39 @@ let private withShipMotion (weapon: WeaponType) (vx: float) (vy: float) (ents: E
                 VelY = e.VelY + vy * BulletInheritVelocity })
     else ents
 
+/// Is this entity a Nucleus orbiter (it circles its owner's ship)?
+let isNucleusOrbiter (ent: Entity) =
+    ent.EType = EntityType.Shield && ent.WeaponIdx = WeaponType.Nucleus
+
+/// Is this entity a toxic cloud (a stationary Flame)?
+let isToxicCloud (ent: Entity) =
+    ent.EType = EntityType.Flame && ent.WeaponIdx = WeaponType.ToxicDump
+
+/// Where Nucleus orbiter `slot` is at orbiter age `timer` around (cx, cy)
+let private orbitPosition (cx: float) (cy: float) (slot: int) (timer: int) =
+    let a = degToRad (float slot * 360.0 / float nucleusOrbiters + float timer * nucleusOrbitSpeed)
+    cx + cos a * nucleusOrbitRadius, cy + sin a * nucleusOrbitRadius
+
+/// NUCLEUS: nucleusOrbiters orbiters, evenly spaced around the ship.
+/// SubType is the orbiter's slot on the ring.
+let private makeNucleusOrbiters (p: Player) (ownerIdx: int) =
+    let cx, cy = p.PosX / PositionScale, p.PosY / PositionScale
+    [ for slot in 0 .. nucleusOrbiters - 1 ->
+        let x, y = orbitPosition cx cy slot 0
+        { defaultEntity with
+            X = x; Y = y; SubType = slot
+            EType = EntityType.Shield; Owner = ownerIdx
+            Radius = 2.0; WeaponIdx = WeaponType.Nucleus } ]
+
+/// TOXIC DUMP: a cloud at the ship's position. Timer counts up from
+/// -toxicLifeTicks; the cloud ends at 0. The Timer never passes the
+/// self-hit grace, so the cloud never hurts the ship that dropped it.
+let private makeToxicCloud (p: Player) (ownerIdx: int) =
+    { defaultEntity with
+        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
+        EType = EntityType.Flame; Owner = ownerIdx
+        Timer = -toxicLifeTicks; Radius = 4.0; WeaponIdx = WeaponType.ToxicDump }
+
 let private fireWeaponRaw (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: int) : Player * Entity list =
     let w = getWeapon p.WeaponType
     let p = { p with ReloadTimer = w.ReloadTicks; Ammo = p.Ammo - 1; ShotCount = p.ShotCount + 1 }
@@ -121,12 +154,11 @@ let private fireWeaponRaw (rng: Random) (level: LevelData option) (p: Player) (o
                         Radius = 4.0; WeaponIdx = WeaponType.Sonicboom }
         p, [ ent ]
 
-    | WeaponType.ToxicDump -> // TOXIC DUMP — persisting flame pool
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        EType = EntityType.Flame; Owner = ownerIdx
-                        Timer = -200; Radius = 8.0; WeaponIdx = WeaponType.ToxicDump }
-        p, [ ent ]
+    | WeaponType.ToxicDump -> // TOXIC DUMP — toxic cloud
+        p, [ makeToxicCloud p ownerIdx ]
+
+    | WeaponType.Nucleus -> // NUCLEUS — orbiters around the ship
+        p, makeNucleusOrbiters p ownerIdx
 
     | WeaponType.Missile -> // MISSILE — homing (Heavy projectile; homing handled in updateEntity)
         p, [ makeProjectile p ownerIdx p.WeaponType ]
@@ -178,8 +210,8 @@ let private fireSpecialRaw (rng: Random) (level: LevelData option) (p: Player) (
         p, ents
 
     | WeaponType.Nucleus ->
-        // NUCLEUS: slow drifting freeze orb — floats ahead as area denial
-        p, [ makeProjectile p ownerIdx sw ]
+        // NUCLEUS: orbiters circling the ship
+        p, makeNucleusOrbiters p ownerIdx
 
     | WeaponType.HellFire ->
         // HELL FIRE: wider spread burst
@@ -229,7 +261,7 @@ let private fireSpecialRaw (rng: Random) (level: LevelData option) (p: Player) (
     | WeaponType.Dirtclod
     // DIRTCLOD: lobbed with gravity
     | WeaponType.Headspinner
-    // HEADSPINNER: EMP/stun shot
+    // HEADSPINNER: EMP shot that spins the ship it hits
     | WeaponType.Freezer ->
         // FREEZER: shield entity on target
         p, [ makeProjectile p ownerIdx sw ]
@@ -243,12 +275,8 @@ let private fireSpecialRaw (rng: Random) (level: LevelData option) (p: Player) (
         p, [ ent ]
 
     | WeaponType.ToxicDump ->
-        // TOXIC DUMP: persisting flame pool
-        let ent = { defaultEntity with
-                        X = p.PosX / PositionScale; Y = p.PosY / PositionScale
-                        EType = EntityType.Flame; Owner = ownerIdx
-                        Timer = -200; Radius = 8.0; WeaponIdx = WeaponType.ToxicDump }
-        p, [ ent ]
+        // TOXIC DUMP: toxic cloud
+        p, [ makeToxicCloud p ownerIdx ]
 
     | WeaponType.Troopers ->
         // TROOPERS: lob 3 ground units in a spread; they fall, dig in and
@@ -321,7 +349,7 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     // Wall damage cooldown countdown
     let wallDmgCooldown = if p.WallDmgCooldown > 0 then p.WallDmgCooldown - 1 else 0
 
-    // Stun countdown
+    // Spin countdown (Headspinner hit: StunTimer ticks of spinning)
     let stunTimer, flags =
         if p.StunTimer > 0 then
             let st = p.StunTimer - 1
@@ -334,12 +362,13 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
         let a = p.AnimAngle + 2.0
         if a >= MaxAngle then a - MaxAngle else a
 
-    // Input processing (unless stunned)
-    let canControl = not (flags.HasFlag PlayerFlags.Stunned)
-
-    // Turning
+    // Turning. A spinning ship turns by itself and ignores the turn keys;
+    // its thrust and guns still work, pointing wherever the spin has it.
     let angle =
-        if canControl then
+        if flags.HasFlag PlayerFlags.Stunned then
+            let a = p.Angle + SpinRate
+            if a >= MaxAngle then a - MaxAngle else a
+        else
             let a =
                 if p.KeyLeft then
                     let a = p.Angle + TurnSpeed
@@ -349,11 +378,10 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
                 let a = a - TurnSpeed
                 if a < 0.0 then a + MaxAngle else a
             else a
-        else p.Angle
 
     // Thrust
     let velX, velY =
-        if canControl && p.KeyUp then
+        if p.KeyUp then
             let rad = degToRad (angle + 90.0)
             let vx = clampF -MaxVelocity MaxVelocity (p.VelX + cos rad * ThrustAccel)
             let vy = clampF -MaxVelocity MaxVelocity (p.VelY - sin rad * ThrustAccel)
@@ -534,14 +562,14 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     let p, newEnts1 =
         let reloadDone = p.ReloadTimer = 0
         let tapFire = freshFirePress && not easyCpu && p.ReloadTimer * 2 <= (getWeapon p.WeaponType).ReloadTicks
-        if p.KeyFire && (reloadDone || tapFire) && p.Ammo > 0 && canControl then
+        if p.KeyFire && (reloadDone || tapFire) && p.Ammo > 0 then
             let p, ents = fireWeapon gs.Rng gs.Level p idx
             holdFire p, ents
         else p, []
 
     // Special weapon firing (DOWN key) — uses SpecialWeapon + SpecialReloadTimer
     let p, newEnts2 =
-        if p.KeyDown && p.SpecialReloadTimer = 0 && canControl then
+        if p.KeyDown && p.SpecialReloadTimer = 0 then
             let p, ents = fireSpecial gs.Rng gs.Level p idx
             holdFire p, ents
         else p, []
@@ -556,6 +584,23 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
 
 // ─── Entity Update ─────────────────────────────────────────────────────
 // Returns (Entity option, new Entity list, new Particle list, terrainModified)
+
+/// A blast: a Nuke entity that grows to blastMaxRadius. Its terrain crater,
+/// damage and knockback come from the Nuke rules.
+let private makeBlast (x: float) (y: float) (owner: int) (weapon: WeaponType) =
+    { defaultEntity with
+        X = x; Y = y
+        EType = EntityType.Nuke; Owner = owner
+        WeaponIdx = weapon; Radius = 0.0 }
+
+/// The radius a blast grows to before it ends
+let blastMaxRadius (ent: Entity) =
+    if ent.WeaponIdx = WeaponType.Dirtclod then dirtclodBlastRadius else nukeBlastRadius
+
+/// DIRTCLOD impact: a small blast plus flying dirt
+let private dirtclodBurst (rng: Random) (x: float) (y: float) (owner: int) =
+    makeBlast x y owner WeaponType.Dirtclod,
+    spawnExplosion rng x y 14 2.0 15 (owner % 4)
 
 let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * Particle list * bool =
     let ent = { ent with Timer = ent.Timer + 1 }
@@ -598,12 +643,29 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         else
             (Some { ent with X = x; Y = y; VelY = vy }, [], [], false)
 
+    | EntityType.Flame when isToxicCloud ent ->
+        // Toxic cloud: grows to toxicRadius, hangs where it was dropped and
+        // shrinks away over its last 30 ticks. Only a pull (blackhole) moves it.
+        let x = ent.X + ent.VelX
+        let y = ent.Y + ent.VelY
+        let left = -ent.Timer
+        let radius =
+            if left < 30 then toxicRadius * float left / 30.0
+            else min toxicRadius (ent.Radius + 0.5)
+        let particles =
+            if ent.Timer % 4 = 0 then
+                let a = degToRad (float (gs.Rng.Next 360))
+                let r = radius * float (gs.Rng.Next 100) / 100.0
+                spawnExplosion gs.Rng (x + cos a * r) (y + sin a * r) 1 0.2 8 (ent.Owner % 4)
+            else []
+        if left <= 0 || outOfBounds 10.0 x y then (None, [], particles, false)
+        else (Some { ent with X = x; Y = y; VelX = ent.VelX * 0.9; VelY = ent.VelY * 0.9; Radius = radius }, [], particles, false)
+
     | EntityType.Flame ->
         let x = ent.X + ent.VelX
         let y = ent.Y + ent.VelY
-        // Toxic dump (stationary) has no gravity; fired flames have light gravity
-        let isStationary = ent.WeaponIdx = WeaponType.ToxicDump
-        let vy = if isStationary then ent.VelY else min (ent.VelY + 0.02) 2.0
+        // Fired flames have light gravity
+        let vy = min (ent.VelY + 0.02) 2.0
         let vx = ent.VelX * 0.98
         // Erase terrain on wall contact
         if hitsWall gs.Level x y 1.0 then
@@ -613,7 +675,7 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
             if ent.Timer % 2 = 0 then
                 spawnExplosion gs.Rng x y 1 0.5 6 (ent.Owner % 4)
             else []
-        let alive = ent.Timer <= 60 && not (outOfBounds 10.0 x y)
+        let alive = ent.Timer <= flameLifeTicks && not (outOfBounds 10.0 x y)
         if alive then
             (Some { ent with X = x; Y = y; VelX = vx; VelY = vy }, [], particles, dirty)
         else (None, [], particles, dirty)
@@ -626,15 +688,8 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
             y > ArenaHeight || y < 0.0 || x < 0.0 || x > ArenaWidth ||
             hitsWall gs.Level x y 2.0 || ent.Timer > 120
         if explode then
-            eraseTerrain gs.Level x y 8.0
-            let shrapnel = [
-                for i in 0..5 do
-                    let angle = degToRad (float i * 60.0 + float (gs.Rng.Next 30))
-                    let speed = 1.5 + float (gs.Rng.Next 100) / 100.0
-                    makeProjectileAt ent.Owner EntityType.Shrapnel x y (cos angle * speed) (sin angle * speed)
-            ]
-            let parts = spawnExplosion gs.Rng x y 8 2.0 15 (ent.Owner % 4)
-            (None, shrapnel, parts, dirty)
+            let blast, parts = dirtclodBurst gs.Rng x y ent.Owner
+            (None, [ blast ], parts, dirty)
         else
             (Some { ent with X = x; Y = y; VelY = vy }, [], [], dirty)
 
@@ -646,8 +701,10 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         let vy = vy * 0.96
         let radius = ent.Radius + 1.5
         eraseTerrain gs.Level x y radius
-        if radius >= nukeBlastRadius then
-            let parts = spawnExplosion gs.Rng x y 20 3.0 30 (ent.Owner % 4)
+        if radius >= blastMaxRadius ent then
+            let parts =
+                if ent.WeaponIdx = WeaponType.AtomWeapon then spawnExplosion gs.Rng x y 20 3.0 30 (ent.Owner % 4)
+                else []
             (None, [], parts, dirty)
         elif outOfBounds 20.0 x y then
             (None, [], [], dirty)
@@ -750,21 +807,14 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
                       Life = 6; Color = ent.Owner % 4 } ]
             else []
 
-        // Wall collision — explode (or detonate as nuke for AtomWeapon)
+        // Wall collision — explode (or detonate as nuke for AtomWeapon).
+        // An atom round detonates on every impact, however short its flight:
+        // a point-blank shot also catches the shooter (friendly fire).
         if hitsWall gs.Level x y 3.0 then
-            if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer < atomArmTicks then
-                // Unarmed atom round fizzles — the nuke can't be point-blank
-                // detonated by firing into the wall next to your target (or
-                // yourself; friendly fire would make that suicide anyway)
-                eraseTerrain gs.Level x y 3.0
-                let parts = spawnExplosion gs.Rng x y 4 1.0 8 (ent.Owner % 4)
-                (None, [], parts @ particles, dirty)
-            elif ent.WeaponIdx = WeaponType.AtomWeapon then
+            if ent.WeaponIdx = WeaponType.AtomWeapon then
                 // Atom weapon: spawn a Nuke entity at impact point
-                let nuke = { defaultEntity with
-                                X = x; Y = y; VelX = ent.VelX * 0.3; VelY = ent.VelY * 0.3
-                                EType = EntityType.Nuke; Owner = ent.Owner
-                                WeaponIdx = WeaponType.AtomWeapon; Radius = 0.0 }
+                let nuke = { makeBlast x y ent.Owner WeaponType.AtomWeapon with
+                                VelX = ent.VelX * 0.3; VelY = ent.VelY * 0.3 }
                 let parts = spawnExplosion gs.Rng x y 4 1.0 8 (ent.Owner % 4)
                 (None, [ nuke ], parts @ particles, dirty)
             else
@@ -776,11 +826,7 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
         elif outOfBounds 20.0 x y || ent.Timer > (if ent.WeaponIdx = WeaponType.Missile then 150 else 300) then
             if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer > 300 then
                 // Atom weapon timeout: detonate wherever it is
-                let nuke = { defaultEntity with
-                                X = ent.X; Y = ent.Y; VelX = 0.0; VelY = 0.0
-                                EType = EntityType.Nuke; Owner = ent.Owner
-                                WeaponIdx = WeaponType.AtomWeapon; Radius = 0.0 }
-                (None, [ nuke ], particles, dirty)
+                (None, [ makeBlast ent.X ent.Y ent.Owner WeaponType.AtomWeapon ], particles, dirty)
             else
                 (None, [], particles, dirty)
         else
@@ -854,15 +900,24 @@ let updateEntity (gs: GameState) (ent: Entity) : Entity option * Entity list * P
                 else
                     (Some { ent with X = x; Y = y; VelX = vx; VelY = vy }, [], [], false)
 
+    | EntityType.Shield when isNucleusOrbiter ent ->
+        // NUCLEUS orbiter: circles its owner's ship through rock and open
+        // space alike; it ends with its lifetime, its owner's life, or when
+        // the owner swaps the Nucleus for another special (like the
+        // magnofilter field)
+        let owner = gs.Players[ent.Owner]
+        if ent.Timer > nucleusLifeTicks || not owner.Alive || owner.SpecialWeapon <> WeaponType.Nucleus then
+            (None, [], [], false)
+        else
+            let x, y = orbitPosition (owner.PosX / PositionScale) (owner.PosY / PositionScale) ent.SubType ent.Timer
+            (Some { ent with X = x; Y = y; VelX = 0.0; VelY = 0.0 }, [], [], false)
+
     | _ ->
         // Default: linear motion (Bullet, BulletAlt, PassThrough, Shield, etc.)
         // Standard bullets get normal gravity; alt bullets get lighter gravity.
-        // The Nucleus freeze orb barely sinks — it is meant to FLOAT ahead as
-        // area denial, not nose-dive (its forward drift is only 1.2 px/tick).
         let gravity =
             match ent.EType with
             | EntityType.Bullet -> BulletGravity
-            | EntityType.Shield when ent.WeaponIdx = WeaponType.Nucleus -> FreezeOrbGravity
             | EntityType.BulletAlt | EntityType.Shield -> LightRoundGravity
             | _ -> 0.0
         let vy = ent.VelY + gravity
@@ -960,6 +1015,7 @@ let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: i
     entities |> List.map (fun ent ->
         // Only pull movable projectiles (not mines, blackholes, expanding, etc.)
         match ent.EType with
+        | EntityType.Flame when isToxicCloud ent -> ent  // a cloud, not a projectile
         | EntityType.Bullet | EntityType.BulletAlt | EntityType.Heavy
         | EntityType.Flame | EntityType.EMP | EntityType.Exploding
         | EntityType.Shrapnel | EntityType.Ricochet | EntityType.Laser ->
@@ -988,6 +1044,56 @@ let applyMagnoPull (entities: Entity list) (players: Player list) (numPlayers: i
                 { ent with VelX = vx; VelY = vy }
             else ent
         | _ -> ent)
+
+// ─── Nucleus Guard Pass ────────────────────────────────────────────────
+// Each ship keeps only its newest nucleusOrbiters orbiters (a new shot
+// replaces the old ring). An orbiter that touches an enemy round small
+// enough to stop (bullets, rubber bullets, debris, flames, EMP and freeze
+// orbs) destroys it and is spent. Rockets, mines and blasts pass.
+
+let private stoppedByOrbiter (ent: Entity) =
+    match ent.EType with
+    | EntityType.Bullet | EntityType.BulletAlt | EntityType.Ricochet
+    | EntityType.Shrapnel | EntityType.EMP -> true
+    | EntityType.Flame -> not (isToxicCloud ent)
+    | EntityType.Shield -> not (isNucleusOrbiter ent)
+    | _ -> false
+
+/// Did round b pass within r of (x, y) on this tick's move? A 5 px/tick
+/// bullet would skip over a 3 px orbiter if only its end point was checked.
+let private sweptHits (x: float) (y: float) (r: float) (b: Entity) =
+    let ax, ay = b.X - b.VelX, b.Y - b.VelY
+    let lenSq = b.VelX * b.VelX + b.VelY * b.VelY
+    let t = if lenSq <= 0.0 then 1.0 else clampF 0.0 1.0 (((x - ax) * b.VelX + (y - ay) * b.VelY) / lenSq)
+    let cx, cy = ax + b.VelX * t, ay + b.VelY * t
+    (x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r
+
+let applyNucleusGuard (rng: Random) (entities: Entity list) : Entity list * Particle list =
+    if not (entities |> List.exists isNucleusOrbiter) then
+        (entities, [])
+    else
+        let es = Array.ofList entities
+        // Newest last: keep the last nucleusOrbiters orbiters of each owner
+        let kept = Collections.Generic.Dictionary<int, int>()
+        for i in es.Length - 1 .. -1 .. 0 do
+            if isNucleusOrbiter es[i] then
+                let n = match kept.TryGetValue es[i].Owner with | true, n -> n | _ -> 0
+                if n >= nucleusOrbiters then es[i] <- { es[i] with EType = EntityType.None }
+                else kept[es[i].Owner] <- n + 1
+        let mutable parts : Particle list = []
+        for oi in 0 .. es.Length - 1 do
+            let o = es[oi]
+            if isNucleusOrbiter o then
+                let mutable spent = false
+                for bi in 0 .. es.Length - 1 do
+                    let b = es[bi]
+                    if not spent && b.Owner <> o.Owner && stoppedByOrbiter b
+                       && sweptHits o.X o.Y 3.0 b then
+                        spent <- true
+                        es[bi] <- { b with EType = EntityType.None }
+                        es[oi] <- { o with EType = EntityType.None }
+                        parts <- spawnExplosionParticles rng o.X o.Y 4 1.0 8 (o.Owner % 4) @ parts
+        (es |> Array.filter (fun e -> e.EType <> EntityType.None) |> Array.toList, parts)
 
 // ─── Projectiles/Blasts vs Troopers ────────────────────────────────────
 // Troopers are killable:
@@ -1043,33 +1149,48 @@ let checkTrooperHits (rng: Random) (entities: Entity list) : Entity list * Parti
 // ─── Bullet-Player Collision ───────────────────────────────────────────
 // Returns (updated Player list, updated Entity list, new Particle list, terrainModified)
 
+/// Entities that hit the same ship again every PeriodicHitTicks while it
+/// stays inside them; other persisting entities hit each ship once
+let private hitsPeriodically (ent: Entity) =
+    ent.EType = EntityType.Blackhole || isToxicCloud ent
+
 let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities: Entity list) : Player list * Entity list * Particle list * bool =
     let mutable ps = Array.ofList players
     let mutable es = Array.ofList entities
     let mutable newParticles : Particle list = []
     let mutable dirty = false
+    let mutable bursts : Entity list = []
 
     for ei in 0 .. es.Length - 1 do
         let mutable ent = es[ei]
+        // Toxic clouds and blackholes may hit each ship again every PeriodicHitTicks
+        if hitsPeriodically ent && ent.Timer % PeriodicHitTicks = 0 then
+            ent <- { ent with HitMask = 0 }
         if ent.EType <> EntityType.None then
             let mutable atomDetonate = false
+            let mutable burstAt = None
             for i in 0 .. gs.NumPlayers - 1 do
                 let p = ps[i]
                 // Friendly fire: after a short grace period a projectile can
                 // hit its own shooter too (at reduced damage, below) — you
                 // can't nuke someone point-blank without getting hurt.
+                // A ship's own Nucleus orbiters circle it and never touch it.
                 let selfHit = i = ent.Owner
-                if p.Alive && p.InvTimer = 0 && (not selfHit || ent.Timer > SelfHitGraceTicks) then
+                if p.Alive && p.InvTimer = 0 && (not selfHit || ent.Timer > SelfHitGraceTicks)
+                   && not (selfHit && isNucleusOrbiter ent)
+                   && ent.HitMask &&& (1 <<< i) = 0 then
                     let radius =
                         match ent.EType with
                         | EntityType.Mine -> 8.0
                         | EntityType.Heavy -> 6.0
-                        // Freeze orbs (Freezer/Nucleus) deal no damage — landing
-                        // one IS the payoff, so give them a forgiving hitbox
+                        | EntityType.Shield when isNucleusOrbiter ent -> 3.0
+                        // Freezer orbs deal no damage — landing one IS the
+                        // payoff, so give them a forgiving hitbox
                         | EntityType.Shield -> 5.0
                         | EntityType.Nuke -> max 4.0 ent.Radius
                         | EntityType.Expanding -> ent.Radius
                         | EntityType.Blackhole -> 6.0
+                        | EntityType.Flame when isToxicCloud ent -> ent.Radius
                         | EntityType.Flame -> max 2.0 (float ent.Timer * 0.3)
                         | _ -> 3.0
                     let px = p.PosX / PositionScale
@@ -1099,27 +1220,32 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             // are individually weaker support fire.
                             | EntityType.Bullet | EntityType.BulletAlt -> max 1 (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Mine -> if ent.Timer > 0 then 30 else 0
+                            | EntityType.Shield when isNucleusOrbiter ent -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.EMP
                             | EntityType.Shield -> 0
-                            | EntityType.Ricochet -> 3
+                            | EntityType.Ricochet -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.PassThrough
                             | EntityType.Laser -> 1
-                            // Homing missiles arrive late by nature, so the
-                            // flight-time damage decay would gut them — they
-                            // deal their flat table damage instead.
-                            | EntityType.Heavy when ent.WeaponIdx = WeaponType.Missile -> (getWeapon ent.WeaponIdx).Damage
+                            // Rockets deal their flat table damage: homing
+                            // missiles arrive late by nature, and a dumbfire
+                            // would lose most of its damage on its first
+                            // 100 px to the heavy-cannon flight-time decay.
+                            | EntityType.Heavy when ent.WeaponIdx = WeaponType.Missile || ent.WeaponIdx = WeaponType.Dumbfire ->
+                                (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Heavy -> heavyDamage ent.Timer
+                            | EntityType.Flame when isToxicCloud ent -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Flame -> 1
+                            | EntityType.Nuke when ent.WeaponIdx = WeaponType.Dirtclod -> dirtclodBlastDamage
                             | EntityType.Nuke
                             | EntityType.Railgun -> 15
                             | EntityType.Shrapnel -> 1
                             | EntityType.Expanding -> 10
-                            | EntityType.Exploding -> 4
+                            | EntityType.Exploding -> (getWeapon ent.WeaponIdx).Damage
                             | EntityType.Blackhole -> 2
                             | _ -> 0
 
                         // Self-hits deal a fraction of the damage; zero-damage
-                        // effect entities (EMP stun, freeze/shield) never
+                        // effect entities (EMP spin, freeze/shield) never
                         // affect their own shooter.
                         let damage =
                             if selfHit then
@@ -1206,10 +1332,12 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                             // Special effects
                             match ent.EType with
                             | EntityType.EMP ->
+                                // Headspinner: the ship spins out of control
+                                // (more hits spin it longer, up to twice as long)
                                 np <- { np with
                                             Flags = np.Flags ||| PlayerFlags.Stunned
-                                            StunTimer = np.StunTimer + StunDurationPerHit }
-                            | EntityType.Shield ->
+                                            StunTimer = min (2 * SpinDurationPerHit) (np.StunTimer + SpinDurationPerHit) }
+                            | EntityType.Shield when not (isNucleusOrbiter ent) ->
                                 np <- { np with
                                             Flags = (np.Flags ||| PlayerFlags.Shield) &&& ~~~PlayerFlags.Stunned
                                             StunTimer = 0 }
@@ -1217,13 +1345,23 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 np <- { np with Flags = np.Flags &&& ~~~PlayerFlags.Shield }
                             | _ -> ()
 
-                            np <- { np with InvTimer = SpawnInvincibilityTicks }
+                            np <- { np with InvTimer = HitImmunityTicks }
 
-                            // Deactivate projectile?
+                            // Deactivate projectile? Persisting ones remember
+                            // the ship so they hit it only once (periodic ones
+                            // once per PeriodicHitTicks).
                             match ent.EType with
                             | EntityType.PassThrough | EntityType.Laser
                             | EntityType.Expanding | EntityType.Blackhole
-                            | EntityType.Nuke | EntityType.Ricochet -> ()  // Persist through hits
+                            | EntityType.Nuke | EntityType.Ricochet ->
+                                ent <- { ent with HitMask = ent.HitMask ||| (1 <<< i) }
+                            | EntityType.Flame when isToxicCloud ent ->
+                                ent <- { ent with HitMask = ent.HitMask ||| (1 <<< i) }
+                            | EntityType.Exploding ->
+                                // A direct dirtclod hit bursts like an impact;
+                                // the blast spares the ship it hit directly
+                                burstAt <- Some (ent.X, ent.Y, i)
+                                ent <- { ent with EType = EntityType.None }
                             | EntityType.Mine ->
                                 match gs.Level with
                                 | Some level ->
@@ -1246,8 +1384,7 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
                                 // this tick. An atom round detonates into a Nuke *after* the
                                 // player loop (below) rather than mid-loop, so overlapping
                                 // players aren't struck as both a Heavy round and a Nuke.
-                                // Unarmed rounds (fired a moment ago) fizzle instead.
-                                if ent.WeaponIdx = WeaponType.AtomWeapon && ent.Timer >= atomArmTicks then atomDetonate <- true
+                                if ent.WeaponIdx = WeaponType.AtomWeapon then atomDetonate <- true
                                 ent <- { ent with EType = EntityType.None }  // Mark for removal
 
                             // Credit kill — only when THIS damaging hit is what crossed the
@@ -1264,13 +1401,20 @@ let checkBulletPlayerCollision (gs: GameState) (players: Player list) (entities:
             // Atom round detonates once, after every player was tested against the
             // original Heavy round. The resulting Nuke expands over the next ticks.
             if atomDetonate then
-                ent <- { ent with EType = EntityType.Nuke; Radius = 0.0
-                                  VelX = ent.VelX * 0.2; VelY = ent.VelY * 0.2 }
+                ent <- { makeBlast ent.X ent.Y ent.Owner WeaponType.AtomWeapon with
+                            VelX = ent.VelX * 0.2; VelY = ent.VelY * 0.2 }
+            // Likewise a dirtclod that hit a ship bursts once, after the loop
+            match burstAt with
+            | Some (bx, by, hit) ->
+                let blast, parts = dirtclodBurst gs.Rng bx by ent.Owner
+                bursts <- { blast with HitMask = 1 <<< hit } :: bursts
+                newParticles <- parts @ newParticles
+            | None -> ()
         es[ei] <- ent
 
     // Filter out "removed" entities (marked with EType = None)
     let entities = es |> Array.filter (fun e -> e.EType <> EntityType.None) |> Array.toList
-    (Array.toList ps, entities, newParticles, dirty)
+    (Array.toList ps, entities @ bursts, newParticles, dirty)
 
 // ─── Player-Player Collision ───────────────────────────────────────────
 
@@ -1991,6 +2135,10 @@ let cpuAI (gs: GameState) : GameState =
                         | WeaponType.ToxicDump ->
                             // Drop toxic when the enemy is close (on the move)
                             droppingClear && dist < 40.0 && phase % 4 = 0
+                        | WeaponType.Nucleus ->
+                            // Raise the orbiters when the enemy closes in or
+                            // rounds are incoming
+                            (dist < 60.0 || threatCount > 0) && phase % 6 = 0
                         | WeaponType.RubberBullets ->
                             // Single bouncing shot when aimed
                             rubberAimed && inRange && phase % 5 = 0
@@ -2006,7 +2154,7 @@ let cpuAI (gs: GameState) : GameState =
                             aimed && dist > 100.0 && phase % 9 = 0
                         | _ ->
                             // Remaining projectile specials (Dirtclod, Headspinner,
-                            // Freezer, Nucleus, Dumbfire): aimed shot in range.
+                            // Freezer, Dumbfire): aimed shot in range.
                             // CPUs only carry Enabled weapons, so this never
                             // fires an unimplemented one.
                             aimed && inRange && phase % 6 = 0
@@ -2115,6 +2263,10 @@ let gameTick (gs: GameState) : GameState =
     // Magnofilter pull pass
     let entities = applyMagnoPull entities players gs.NumPlayers
 
+    // Nucleus orbiters stop enemy rounds
+    let entities, guardParts = applyNucleusGuard gs.Rng entities
+    let particles = particles @ guardParts
+
     // Projectiles and blasts shoot down troopers
     let entities, trooperParts = checkTrooperHits gs.Rng entities
     let particles = particles @ trooperParts
@@ -2199,10 +2351,12 @@ let initRound (gs: GameState) : GameState =
                     { spawned with
                         WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
                         ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = isCpu }
-                // CPU players open each round with a random special weapon
-                // (humans keep their previous pick)
+                // Every ship opens the round with a random special weapon.
+                // With OnlyAtStart the host then sets each human's pick from
+                // the round-start weapon menu (CPU ships keep the random one).
                 let spawned =
-                    if isCpu then { spawned with SpecialWeapon = randomSpecialWeapon gs.Rng spawned.SpecialWeapon }
+                    if isCpu || gs.WeaponSwitch <> OnlyAtStart then
+                        { spawned with SpecialWeapon = randomSpecialWeapon gs.Rng spawned.SpecialWeapon }
                     else spawned
                 spawned, (if idx >= 0 then idx :: occupied else occupied)
             else

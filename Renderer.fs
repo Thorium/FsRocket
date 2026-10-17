@@ -581,6 +581,14 @@ let drawPlayerView (res: RenderResources) (device: GraphicsDevice) (gs: GameStat
                     drawLine sb res.Pixel (ex - sz/2) ey (ex + sz/2) ey crossColor 1.0f
                     drawLine sb res.Pixel ex (ey - sz/2) ex (ey + sz/2) crossColor 1.0f
 
+            | EntityType.Flame when ent.WeaponIdx = WeaponType.ToxicDump ->
+                // Toxic cloud: a pulsing green haze the size of its hit radius
+                let tR = max 2 (int (ent.Radius * float Scale))
+                let pulse = 0.5 + 0.5 * sin (float ent.Timer * 0.15)
+                drawFilledCircle sb res.CircleFilled ex ey tR (rgba 0x40 0xC0 0x20 (50 + int (30.0 * pulse)))
+                drawFilledCircle sb res.CircleFilled ex ey (tR * 2 / 3) (rgba 0x80 0xFF 0x40 (40 + int (30.0 * pulse)))
+                drawCircleOutline sb res.CircleOutline ex ey tR (rgba 0x60 0xFF 0x30 110)
+
             | EntityType.Flame ->
                 // Flame: fading orange-red glow
                 let fTimer = max 1 (abs ent.Timer)
