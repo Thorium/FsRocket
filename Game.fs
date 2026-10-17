@@ -245,6 +245,10 @@ let fireSpecial (rng: Random) (level: LevelData option) (p: Player) (ownerIdx: i
 // ─── Player Update ─────────────────────────────────────────────────────
 // Returns (updated Player, new Entities, new Particles, terrainModified)
 
+/// Easy CPU ships fire at most once per this many ticks (1 s at 36 fps)
+[<Literal>]
+let EasyCpuFireTicks = 36
+
 let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle list * bool =
     let p = gs.Players[idx]
     if not p.Alive then (p, [], [], false) else
@@ -484,17 +488,30 @@ let updatePlayer (gs: GameState) (idx: int) : Player * Entity list * Particle li
     // fire once the reload is half done, so a quick trigger finger can push
     // the main gun up to 2x the auto-fire rate. Main weapon only — specials
     // keep their full reload gate.
+    //
+    // Easy CPU ships hold their fire: after any shot, main gun or special,
+    // both guns wait at least EasyCpuFireTicks and the tap shortcut is off, so
+    // an Easy CPU fires about once a second. Hard CPUs and humans are untouched.
+    let easyCpu = p.IsCpu && gs.CpuDifficulty = Easy
+    let holdFire (p: Player) =
+        if easyCpu then
+            { p with ReloadTimer = max p.ReloadTimer EasyCpuFireTicks
+                     SpecialReloadTimer = max p.SpecialReloadTimer EasyCpuFireTicks }
+        else p
+
     let p, newEnts1 =
         let reloadDone = p.ReloadTimer = 0
-        let tapFire = freshFirePress && p.ReloadTimer * 2 <= (getWeapon p.WeaponType).ReloadTicks
+        let tapFire = freshFirePress && not easyCpu && p.ReloadTimer * 2 <= (getWeapon p.WeaponType).ReloadTicks
         if p.KeyFire && (reloadDone || tapFire) && p.Ammo > 0 && canControl then
-            fireWeapon gs.Rng gs.Level p idx
+            let p, ents = fireWeapon gs.Rng gs.Level p idx
+            holdFire p, ents
         else p, []
 
     // Special weapon firing (DOWN key) — uses SpecialWeapon + SpecialReloadTimer
     let p, newEnts2 =
         if p.KeyDown && p.SpecialReloadTimer = 0 && canControl then
-            fireSpecial gs.Rng gs.Level p idx
+            let p, ents = fireSpecial gs.Rng gs.Level p idx
+            holdFire p, ents
         else p, []
 
     // Death check
@@ -1269,6 +1286,8 @@ let updateParticle (p: Particle) : Particle option =
 // ─── CPU AI ────────────────────────────────────────────────────────────
 // Full AI: lead-shot aiming, projectile dodging, weapon-aware tactics,
 // gravity-compensated movement, terrain/boundary avoidance, per-CPU personality.
+// The AI is the same at both difficulties; Easy only caps the fire rate
+// (EasyCpuFireTicks, applied in updatePlayer).
 
 // AI personality traits derived from player index — gives each CPU a different style
 type AiPersonality =
@@ -1284,6 +1303,120 @@ let aiPersonalities = [|
     { AimTolerance = 18.0; FireRange = 120.0; Aggression = 0.9; DodgeRadius = 40.0; SpecialUseChance = 0.4 }  // Brawler
     { AimTolerance = 10.0; FireRange = 180.0; Aggression = 0.6; DodgeRadius = 55.0; SpecialUseChance = 0.6 }  // Balanced
 |]
+
+// ── Retreat to repair ──
+// A badly damaged CPU ship breaks off the fight and flies to the nearest free
+// base it can see, then sits there as a turret (turning and firing, no
+// thrust) until the pad has healed it to full. It's an occasional move, not a
+// habit: at most one repair trip a minute, never started with an enemy close
+// by, and abandoned (back to the fight) the moment an enemy comes close.
+
+/// Health at or below which a CPU heads for a base (20%)
+let cpuRepairHealth = FullHealth * 2 / 10
+/// At most one repair trip per CPU per this many ticks (one minute at 36 fps)
+[<Literal>]
+let CpuRepairCooldownTicks = 36 * 60
+/// An enemy closer than this (pixels) keeps a CPU fighting instead of docking
+[<Literal>]
+let CpuRepairEnemyClearance = 100.0
+/// A repair trip that hasn't docked within this many ticks (15 s) is given up
+[<Literal>]
+let CpuRepairTripTicks = 36 * 15
+
+/// Whether a ship-wide corridor (the straight line between two points, in
+/// pixels, plus parallel lines 3 pixels either side) is clear of walls — a bare
+/// line can graze a corner the ship itself would catch on
+let private clearPath (level: LevelData) (x0: float) (y0: float) (x1: float) (y1: float) =
+    let len = sqrt ((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0))
+    let steps = max 1 (int (len / 3.0))
+    let nx, ny = if len > 0.0 then -(y1 - y0) / len * 3.0, (x1 - x0) / len * 3.0 else 0.0, 0.0
+    [ 0.0; 1.0; -1.0 ]
+    |> List.forall (fun side ->
+        seq { 0..steps }
+        |> Seq.forall (fun s ->
+            let t = float s / float steps
+            let x = x0 + (x1 - x0) * t + nx * side
+            let y = y0 + (y1 - y0) * t + ny * side
+            not (Terrain.isWall (Terrain.terrainAt level.Pixels x y))))
+
+/// Where CPU `i` should fly next on its way to the nearest free base it can
+/// reach (pixels), if any. Ships come in from above: the waypoint is a spot 25
+/// pixels over the pad until the ship is above the pad itself, then the pad.
+let private nearestRepairBase (gs: GameState) (i: int) (px: float) (py: float) : (float * float) option =
+    match gs.Level with
+    | Some level ->
+        let occupied (sp: SpawnPoint) =
+            gs.Players
+            |> List.indexed
+            |> List.exists (fun (j, o) ->
+                j <> i && j < gs.NumPlayers && o.Alive
+                && abs (o.PosX / PositionScale - (float sp.X + float sp.Width / 2.0)) < float sp.Width / 2.0 + 6.0
+                && abs (o.PosY / PositionScale - float sp.Y) < 8.0)
+        let waypoint (sp: SpawnPoint) =
+            let bx, by = float sp.X + float sp.Width / 2.0, float sp.Y - 2.0
+            let overPad = abs (px - bx) < float sp.Width / 2.0 - 2.0 && py <= by
+            if overPad || not (clearPath level bx (by - 25.0) bx by) then bx, by else bx, by - 25.0
+        level.SpawnPoints
+        |> Array.filter (fun sp -> not (occupied sp))
+        |> Array.map waypoint
+        |> Array.filter (fun (wx, wy) -> clearPath level px py wx wy)
+        |> Array.sortBy (fun (wx, wy) -> (wx - px) * (wx - px) + (wy - py) * (wy - py))
+        |> Array.tryHead
+    | None -> None
+
+/// Whether flying from (px, py) along `angle` hits a wall or the arena edge
+/// within 12 pixels (sampled close in, so a one-pixel bump next to a ship
+/// resting on the ground counts)
+let private wallAhead (level: LevelData) (px: float) (py: float) (angle: float) =
+    let rad = degToRad (angle + 90.0)
+    [ 1.0; 2.0; 4.0; 8.0; 12.0 ]
+    |> List.exists (fun d ->
+        let x = px + cos rad * d
+        let y = py - sin rad * d
+        x < 2.0 || x > ArenaWidth - 2.0 || y < 2.0 || y > ArenaHeight - 2.0
+        || Terrain.isWall (Terrain.terrainAt level.Pixels x y))
+
+/// Steer toward a waypoint: returns (turnLeft, turnRight, thrust). Wants a
+/// velocity aimed at the waypoint that slows on approach, and only ever thrusts
+/// up or sideways — gravity does the descending. If walls block the way the
+/// nose wants to push, it tilts up in steps until the way is clear. A pad stops
+/// a ship touching it at any speed, so the landing need not be gentle, only
+/// clear of walls.
+let private steerToBase (level: LevelData) (p: Player) (px: float) (py: float) (tx: float) (ty: float) =
+    let dx = tx - px
+    let dy = ty - py
+    let wantVX = clampF -1.0 1.0 (dx * 0.04)
+    let wantVY = clampF -1.0 0.8 (dy * 0.04)
+    let ex = wantVX - p.VelX
+    let ey = min 0.0 (wantVY - p.VelY)
+    let needThrust = sqrt (ex * ex + ey * ey) > 0.1
+    let angleDiff (target: float) =
+        let mutable diff = target - p.Angle
+        if diff > 180.0 then diff <- diff - 360.0
+        if diff < -180.0 then diff <- diff + 360.0
+        diff
+    // Nose along the needed push (tilted up past any wall in the way), or
+    // straight up (ready to brake) when coasting
+    let wantAngle =
+        if needThrust then
+            let a = atan2 (-ex) (-ey) * 180.0 / Math.PI
+            let a = if a < 0.0 then a + 360.0 else a
+            // Step toward nose-up (angle 0) 30 degrees at a time
+            let towardUp = if a > 180.0 then 30.0 else -30.0
+            [ 0..6 ]
+            |> List.map (fun k ->
+                let c = a + towardUp * float k
+                if (towardUp > 0.0 && c >= 360.0) || (towardUp < 0.0 && c <= 0.0) then 0.0 else c)
+            |> List.tryFind (fun c -> not (wallAhead level px py c))
+        else Some 0.0
+    match wantAngle with
+    | Some target ->
+        let diff = angleDiff target
+        (diff > 3.0, diff < -3.0, needThrust && abs diff < 30.0)
+    | None ->
+        // Boxed in every way up: turn nose-up and wait for gravity or a gap
+        let diff = angleDiff 0.0
+        (diff > 3.0, diff < -3.0, false)
 
 let cpuAI (gs: GameState) : GameState =
     let players =
@@ -1345,6 +1478,8 @@ let cpuAI (gs: GameState) : GameState =
 
                     let turnLeft = diff > 3.0
                     let turnRight = diff < -3.0
+                    // Plain aim turn, kept apart from the dodge override below
+                    let aimLeft, aimRight = turnLeft, turnRight
 
                     // ── Cannon aim tolerance (main fire key — always Cannon) ──
                     let aimTol = personality.AimTolerance
@@ -1513,12 +1648,65 @@ let cpuAI (gs: GameState) : GameState =
                             // fires an unimplemented one.
                             aimed && inRange && phase % 6 = 0
 
-                    { p with
-                        KeyUp = shouldThrust
-                        KeyLeft = turnLeft
-                        KeyRight = turnRight
-                        KeyFire = shouldFire
-                        KeyDown = useSpecial })
+                    let fight =
+                        { p with
+                            KeyUp = shouldThrust
+                            KeyLeft = turnLeft
+                            KeyRight = turnRight
+                            KeyFire = shouldFire
+                            KeyDown = useSpecial
+                            Repairing = false }
+
+                    // ── Repair trip: dock on a base instead of chasing ──
+                    let enemyClose = dist < CpuRepairEnemyClearance
+                    let mayStartTrip =
+                        p.Health <= cpuRepairHealth
+                        && (p.RepairTick < 0 || tick - p.RepairTick >= CpuRepairCooldownTicks)
+                    // A trip in progress keeps its start tick (for the cooldown)
+                    let tripTick = if p.Repairing then p.RepairTick else tick
+                    let tripTooLong = p.Repairing && not p.OnBase && tick - p.RepairTick > CpuRepairTripTicks
+                    if enemyClose || tripTooLong || p.Health >= FullHealth || not (p.Repairing || mayStartTrip) then
+                        // No trip, trip done or taking too long, or an enemy too
+                        // close to dock: fight
+                        fight
+                    elif p.OnBase then
+                        // Docked: stay put as a turret until fully repaired — aim
+                        // and fire at the enemy, but never thrust off the pad
+                        { p with
+                            KeyUp = false
+                            KeyLeft = aimLeft
+                            KeyRight = aimRight
+                            KeyFire = shouldFire
+                            KeyDown = useSpecial
+                            Repairing = true
+                            RepairTick = tripTick }
+                    else
+                        match gs.Level, nearestRepairBase gs i px py with
+                        | Some level, Some (bx, by) ->
+                            // Fly to the base, shooting only if the enemy happens
+                            // to cross the nose
+                            let left, right, thrust = steerToBase level p px py bx by
+                            { p with
+                                KeyUp = thrust
+                                KeyLeft = left
+                                KeyRight = right
+                                KeyFire = shouldFire
+                                KeyDown = false
+                                Repairing = true
+                                RepairTick = tripTick }
+                        | Some level, None when p.Repairing ->
+                            // Lost sight of the base mid-trip (dropped into a
+                            // pocket): climb to see it again
+                            let left, right, thrust = steerToBase level p px py px (py - 30.0)
+                            { p with
+                                KeyUp = thrust
+                                KeyLeft = left
+                                KeyRight = right
+                                KeyFire = shouldFire
+                                KeyDown = false }
+                        | _ ->
+                            // No free base in sight: no trip, keep fighting
+                            fight)
     { gs with Players = players }
 
 // ─── Main Game Tick ────────────────────────────────────────────────────
@@ -1644,7 +1832,8 @@ let initRound (gs: GameState) : GameState =
                 let spawned =
                     { spawned with
                         WeaponType = WeaponType.Cannon; Ammo = 999; KillCount = 0; DeathCount = 0
-                        ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = isCpu }
+                        ReloadTimer = 0; SpecialReloadTimer = 0; IsCpu = isCpu
+                        Repairing = false; RepairTick = -1 }
                 // CPU players open each round with a random special weapon
                 // (humans keep their previous pick)
                 let spawned =

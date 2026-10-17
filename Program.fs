@@ -13,6 +13,7 @@
 ///     By default a weapon can only be changed while parked on a base.
 ///   F9: Cycle the weapon-switch rule (on a base / anytime / game start)
 ///   F1: Keys & controls screen (menu only)
+///   F2: Toggle the CPU level (menu only) — Hard (default) / Easy = CPU ships fire about once a second
 ///   F4: Toggle "respawn on death" (menu only) — off = last ship flying wins the round
 ///   F5/F6: Prev/next level
 ///   F10: Toggle gamepad input (XInput pads claim players in order; keyboard stays active)
@@ -111,7 +112,7 @@ let private keyCode (key: Keys) =
     match key with
     | Keys.Escape -> Some "Escape"
     | Keys.Space -> Some "Space"
-    | Keys.F1 | Keys.F4 | Keys.F5 | Keys.F6 | Keys.F7 | Keys.F8 | Keys.F9 | Keys.F10 | Keys.F11 -> Some(string key)
+    | Keys.F1 | Keys.F2 | Keys.F4 | Keys.F5 | Keys.F6 | Keys.F7 | Keys.F8 | Keys.F9 | Keys.F10 | Keys.F11 -> Some(string key)
     | _ when key >= Keys.D1 && key <= Keys.D9 -> Some $"Digit{int key - int Keys.D0}"
     | _ -> None
 
@@ -373,6 +374,14 @@ type GameForm() as this =
         | "F10" -> gs <- { gs with GamepadsEnabled = not gs.GamepadsEnabled }
         // Toggle "respawn on death" — menu only, so the rule can't flip mid-round
         | "F4" -> if not gs.RoundActive then gs <- { gs with RespawnOnDeath = not gs.RespawnOnDeath }
+        // Toggle the CPU difficulty (Hard / Easy) — menu only, like F4
+        | "F2" ->
+            if not gs.RoundActive then
+                let next =
+                    match gs.CpuDifficulty with
+                    | Hard -> Easy
+                    | Easy -> Hard
+                gs <- { gs with CpuDifficulty = next }
         | "F5" -> switchLevel -1
         | "F6" -> switchLevel 1
         | "F7" ->

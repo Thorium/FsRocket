@@ -744,9 +744,15 @@ let weaponRuleName (rule: WeaponSwitchRule) =
     | Anytime -> "Anytime"
     | OnlyAtStart -> "Game start"
 
+/// The CPU difficulty as the menu names it.
+let cpuDifficultyName (difficulty: CpuDifficulty) =
+    match difficulty with
+    | Easy -> "Easy"
+    | Hard -> "Hard"
+
 let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: int) =
     let pw, rowH = 500, 34
-    let ph = 74 + 44 + 6 * rowH + 48 + 22
+    let ph = 74 + 44 + 7 * rowH + 48 + 22
     let px, py = (windowW - pw) / 2, (windowH - ph) / 2
     let lx, cx0, cw = px + 16, px + 250, 234   // label column, control column
     let row k = py + 74 + 44 + k * rowH
@@ -769,13 +775,15 @@ let private mainMenu (gs: GameState) (view: MenuView) (windowW: int) (windowH: i
       yield! stepper (row 1) levelName "F5" "F6" "<" ">"
       yield! labelWithKey lx (row 2 + 6) "CPU ships" "F7/F8"
       yield! stepper (row 2) (string gs.CpuCount) "F7" "F8" "-" "+"
-      yield! labelWithKey lx (row 3 + 6) "Respawn" "F4"
-      yield toggle (row 3) (onOff gs.RespawnOnDeath) "F4"
-      yield! labelWithKey lx (row 4 + 6) "Weapon switch" "F9"
-      yield toggle (row 4) (weaponRuleName gs.WeaponSwitch) "F9"
-      yield! labelWithKey lx (row 5 + 6) "Gamepads" "F10"
-      yield toggle (row 5) (onOff gs.GamepadsEnabled) "F10"
-      yield Button(Rectangle(px + 16, row 6 + 8, pw - 32, 30), "Keys & controls", "F1", "F1", Plain)
+      yield! labelWithKey lx (row 3 + 6) "CPU level" "F2"
+      yield toggle (row 3) (cpuDifficultyName gs.CpuDifficulty) "F2"
+      yield! labelWithKey lx (row 4 + 6) "Respawn" "F4"
+      yield toggle (row 4) (onOff gs.RespawnOnDeath) "F4"
+      yield! labelWithKey lx (row 5 + 6) "Weapon switch" "F9"
+      yield toggle (row 5) (weaponRuleName gs.WeaponSwitch) "F9"
+      yield! labelWithKey lx (row 6 + 6) "Gamepads" "F10"
+      yield toggle (row 6) (onOff gs.GamepadsEnabled) "F10"
+      yield Button(Rectangle(px + 16, row 7 + 8, pw - 32, 30), "Keys & controls", "F1", "F1", Plain)
       yield centredLabel (px + pw / 2) (py + ph - 16) "Esc: quit   F11: fullscreen" menuDim 1 ]
 
 let private keysScreen (windowW: int) (windowH: int) =

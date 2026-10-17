@@ -29,6 +29,7 @@ let createPlayer (index: int) : Player =
       AnimAngle = 0.0; BlackholeCounter = 1
       InvTimer = SpawnInvincibilityTicks; WallDmgCooldown = 0
       KillCount = 0; DeathCount = 0; IsCpu = false; SpawnIndex = -1
+      Repairing = false; RepairTick = -1
       OnBase = false }
 
 let defaultEntity : Entity =
@@ -48,6 +49,7 @@ let createGameState (numPlayers: int) : GameState =
       Rng = Random ()
       NumPlayers = min numPlayers 4
       CpuCount = 0
+      CpuDifficulty = Hard
       GameTick = 0
       RoundActive = false
       Level = None
@@ -75,6 +77,7 @@ let private placeAtSpawn (sx: int) (sy: int) (spawnIdx: int) (p: Player) : Playe
         SpecialReloadTimer = 0
         AnimAngle = 0.0
         SpawnIndex = spawnIdx
+        Repairing = false
         OnBase = false }, spawnIdx
 
 /// Choose a spawn pixel, using `chooseBase` when the level has bases and falling
